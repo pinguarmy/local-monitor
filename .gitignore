@@ -1,0 +1,13 @@
+.build/
+.swiftpm/
+dist/
+evidence/
+.DS_Store
+**/.validation/
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+*.pfx
+*.key

@@ -1,0 +1,21 @@
+name: Build and test
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: macos-14
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Build and standalone tests
+        run: bash scripts/test-direct.sh
+      - name: Swift Package tests
+        run: swift test
+      - name: Build local signed bundle
+        run: bash scripts/build-app.sh
+      - name: Verify public files and application
+        run: python3 scripts/check-release-privacy.py
