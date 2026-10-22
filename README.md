@@ -2,7 +2,7 @@
 
 轻量的 macOS 菜单栏监控工具，在一个面板里查看系统资源、Mac 电池和 USB 连接设备的电池信息。
 
-[下载](https://github.com/pinguarmy/local-monitor/releases/latest) · [发布记录](https://github.com/pinguarmy/local-monitor/releases) · [MIT 许可证](LICENSE)
+[下载](https://github.com/pinguarmy/local-monitor/releases) · [发布记录](https://github.com/pinguarmy/local-monitor/releases) · [MIT 许可证](LICENSE)
 
 ## 功能
 
