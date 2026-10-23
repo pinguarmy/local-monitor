@@ -3,12 +3,12 @@ name: Bug report
 about: Report a problem without sharing private device data
 ---
 
-## 问题描述
+## Description
 
-## 复现步骤
+## Steps to reproduce
 
-## 系统与应用版本
+## System and app version
 
-请只填写通用版本信息。不要上传序列号、UDID、配对记录、完整设备树或未经检查的截图和日志。
+Provide general version information only. Do not upload serial numbers, UDIDs, pairing records, full device trees, or unchecked screenshots and logs.
 
-## 预期与实际结果
+## Expected and actual behavior

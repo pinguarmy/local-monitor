@@ -1,14 +1,14 @@
-# 隐私说明
+# Privacy
 
-Local Monitor 在本地读取系统计数与电池信息，不联网、上传数据或保存历史。
+Local Monitor reads system counters and battery information locally. It does not make network requests, upload data or save a history.
 
-## 读取内容
+## Data access
 
-- Mac 的电源、电池、CPU、GPU、内存、磁盘容量和网络计数。
-- 已连接移动设备的型号代码、系统版本和电池状态。
+- Mac power, battery, CPU, GPU, memory, disk capacity and network counters.
+- Connected mobile-device model codes, OS versions and battery status.
 
-不扫描用户目录，不读取网络流量内容、访问地址、照片、消息、设备名称、序列号、UDID 或配对记录。诊断回复只在内存处理，保留限定的数值字段，不输出或保存其他属性。
+The app does not scan user directories or read network traffic contents, destination addresses, photos, messages, user-assigned device names, serial numbers, UDIDs or pairing records. Diagnostic replies are processed in memory; only allowlisted numeric fields are retained, and other properties are neither output nor saved.
 
-CLI 会将快照写到终端，预览命令会在指定路径生成本应用的视图图片。分享输出前，请检查其中的型号、时间和状态信息。
+The CLI writes snapshots to the terminal. Preview commands render the app's own view to a specified file. Check model, timestamp and status information before sharing these outputs.
 
-隐私问题请通过仓库的私密漏洞报告功能提交，不要公开原始设备树或配对记录。
+Report privacy issues through the repository's private vulnerability reporting feature. Do not publish raw device trees or pairing records.

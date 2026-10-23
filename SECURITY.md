@@ -1,21 +1,21 @@
-# 安全说明
+# Security
 
-当前版本为早期测试版。报告问题时优先使用 GitHub 仓库的私密漏洞报告功能。若该功能不可用，可先开一个不含敏感信息的 Issue，请求建立私密沟通渠道。不要公开令牌、序列号、配对记录或原始诊断回复。
+This is an early Beta release. Report security issues through GitHub's private vulnerability reporting feature. If unavailable, open an issue without sensitive details to request a private contact channel. Do not publish tokens, serial numbers, pairing records or raw diagnostic replies.
 
-## 权限与操作边界
+## Permissions and operations
 
-不需要 root，不自动配对或信任，不安装设备端软件，不改变充电、风扇、睡眠或系统安全设置。移动设备协议只发送固定电池 IORegistry 读取，不提供任意请求入口，不发送 Restart、Shutdown、Sleep 或写属性命令。
+The app does not require root, pair or trust devices automatically, install device-side software, or change charging, fans, sleep or system security settings. Device communication sends a fixed battery IORegistry read. There is no arbitrary request interface and no Restart, Shutdown, Sleep or property-write command.
 
-应用没有网络服务、自动更新器或第三方运行时依赖。不内置账户和凭据。源码和应用使用 MIT 许可，按现状提供。
+There is no network service, automatic updater, third-party runtime dependency, account or embedded credential. The software is provided as-is under the MIT License.
 
-## 已知风险
+## Known risks
 
-MobileDevice 是非公有系统接口，ABI、签名和系统行为可能变化。原生调用在后台执行，超时后 UI 可以返回，单任务 gate 防止反复积累调用；套接字与循环也有限时。但这些措施不能强制终止私有框架内部挂死，也不能隔离原生崩溃。需要时请退出并重新打开应用。
+MobileDevice is a non-public system interface. Its ABI and behavior may change. Native calls run off the main thread; a timeout lets the UI return, and a single-task gate prevents repeated calls from accumulating. Socket and loop deadlines provide additional limits. These measures cannot forcibly terminate a private-framework hang or isolate a native crash. Restart the app if necessary.
 
-电池诊断仅在用户打开设备页或手动刷新时运行。若不需要实验性移动设备功能，可只使用系统与 Mac 电池页。
+Device diagnostics run only when you open the Devices tab or manually refresh it. You can use the System and Mac Battery tabs without using the experimental device feature.
 
-回复最多 256 KiB，只提取指定嵌套路径的有限数值字段。输入值会校验类型、范围与来源单位，但未经测试的系统、设备和固件仍可能改变语义。读数不用于医疗、安全或电池维修判断。
+Replies are limited to 256 KiB and only allowlisted numeric fields at a specific nested path are extracted. Values are checked for type, range and source-specific units, but untested systems and firmware may change their meaning. Do not use these readings for medical, safety or repair decisions.
 
-## 签名与系统保护
+## Signing
 
-下载包仅 ad-hoc 签名，未经 Developer ID 签名和 Apple 公证。请核对来源与 SHA-256，不要为运行它关闭 Gatekeeper 或 SIP。Gatekeeper 是否提供正常打开选项取决于系统版本与策略。
+Downloads are ad-hoc signed, without Developer ID signing or Apple notarization. Check the source and SHA-256 checksum. Do not disable Gatekeeper or SIP to run the app. Available open options depend on macOS version and policy.

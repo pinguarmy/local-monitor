@@ -1,48 +1,48 @@
-# Local Monitor · 本机监控
+# Local Monitor
 
-轻量的 macOS 菜单栏监控工具，在一个面板里查看系统资源、Mac 电池和 USB 连接设备的电池信息。
+A lightweight macOS menu bar app for system resources, Mac battery health, and battery information from USB-connected devices.
 
-[下载](https://github.com/pinguarmy/local-monitor/releases) · [发布记录](https://github.com/pinguarmy/local-monitor/releases) · [MIT 许可证](LICENSE)
+[Download](https://github.com/pinguarmy/local-monitor/releases) · [MIT License](LICENSE)
 
-## 功能
+## Features
 
-| 页面 | 内容 |
+| Tab | Metrics |
 | --- | --- |
-| 系统 | CPU 使用率、核心与负载，GPU 型号与利用率，内存、交换与压力，磁盘容量，网络速率与累计量。 |
-| 电池 | 电量与充电状态，设计和满充容量，估算容量比，循环次数，温度、电压、电流与电池侧功率。 |
-| 设备 | USB 连接的 iPhone/iPad 型号、系统版本，以及可读取的电量、充电状态、温度、循环和容量。 |
+| System | CPU usage, cores and load; GPU model and utilization; memory, swap and pressure; disk capacity; network rates and totals. |
+| Battery | Charge and power status, design and full-charge capacity, estimated capacity ratio, cycles, temperature, voltage, current and battery-side power. |
+| Devices | Connected iPhone/iPad model, OS version and available battery charge, charging status, temperature, cycles and capacity. |
 
-缺失的指标自动隐藏，不显示占位值。系统指标只在系统页可见时更新，关闭面板即停止；Mac 电池按电源事件或手动刷新读取，设备仅在打开页面或手动刷新时读取。
+Unavailable metrics are hidden. System metrics update only while the System tab is visible and stop when the panel closes. Mac battery readings use power events or manual refresh; device readings run when you open the Devices tab or refresh it.
 
-## 安装
+## Install
 
-1. 在 [Releases](https://github.com/pinguarmy/local-monitor/releases) 下载 Apple Silicon 安装包。
-2. 解压，将 `LocalMonitor.app` 拖入“应用程序”或 `~/Applications`。
-3. 打开应用，从菜单栏进入监控面板。
+1. Download the Apple Silicon package from [Releases](https://github.com/pinguarmy/local-monitor/releases).
+2. Extract it and drag `LocalMonitor.app` into Applications or `~/Applications`.
+3. Open the app and use its menu bar item.
 
-更新前请退出旧版。连接手机时使用数据线，解锁设备，并按系统提示自行确认信任。
+Quit the previous version before replacing it. To connect a phone, use a data cable, unlock the device, and confirm trust yourself if macOS asks.
 
-最低系统声明为 macOS 13。当前提供 Apple Silicon 下载包，Intel 可自行构建。应用为 Beta，采用 ad-hoc 签名，尚未经过 Apple 公证；如被拦截，请使用 macOS 正常的打开流程，不要关闭系统安全保护。
+The minimum deployment target is macOS 13. Downloads currently support Apple Silicon; Intel users can build from source. This is a Beta release with an ad-hoc signature, not Apple notarization. Use the normal macOS open process if prompted; do not disable system security protections.
 
-## 本地、只读
+## Local and read-only
 
-不联网、不上传数据、不保存历史，不需要 root，也不控制充电、风扇或系统睡眠。移动设备功能使用非公有系统接口，属于实验性功能，支持情况随系统和设备变化。
+No network requests, uploads, history database or root access. The app does not control charging, fans or system sleep. Mobile-device support uses non-public system interfaces and is experimental; availability varies by OS and device.
 
-容量比不是系统官方健康评级，电池侧功率不是整机功耗。详见 [数据口径](docs/DATA_SOURCES.md)、[隐私说明](PRIVACY.md) 和 [安全说明](SECURITY.md)。
+The capacity ratio is not an official battery health rating. Battery-side power is not whole-system power consumption. See [metric definitions](docs/DATA_SOURCES.md), [privacy](PRIVACY.md) and [security](SECURITY.md).
 
-## 构建
+## Build
 
-需要 macOS、Swift 5.9+ 和 Xcode Command Line Tools，无第三方包依赖。
+Requires macOS, Swift 5.9+ and Xcode Command Line Tools. No third-party package dependencies.
 
 ```bash
 bash scripts/build-app.sh      # dist/LocalMonitor.app
-bash scripts/test-direct.sh   # 独立测试
-bash scripts/install-app.sh   # 安装前先退出应用
+bash scripts/test-direct.sh   # Standalone tests
+bash scripts/install-app.sh   # Quit the app before installing
 ```
 
-完整 Xcode 环境也可使用 `swift build` 和 `swift test`。
+A full Xcode environment also supports `swift build` and `swift test`.
 
-## 命令行
+## Command line
 
 ```bash
 .build/direct/local-monitor-cli --system
@@ -51,4 +51,4 @@ bash scripts/install-app.sh   # 安装前先退出应用
 .build/direct/local-monitor-cli --all
 ```
 
-每次运行输出一个 JSON 快照，不在后台持续采样。缺失字段省略，时间使用 ISO 8601。
+Each invocation outputs one JSON snapshot, without continuous background sampling. Missing fields are omitted and timestamps use ISO 8601.
