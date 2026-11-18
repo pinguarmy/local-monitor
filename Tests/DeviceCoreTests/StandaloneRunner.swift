@@ -23,6 +23,9 @@ func XCTAssertFalse(_ actual: Bool, file: StaticString = #filePath, line: UInt =
 func XCTAssertNil(_ actual: Any?, file: StaticString = #filePath, line: UInt = #line) {
     check(actual == nil, "expected nil", file: file, line: line)
 }
+func XCTAssertNotNil(_ actual: Any?, file: StaticString = #filePath, line: UInt = #line) {
+    check(actual != nil, "expected non-nil", file: file, line: line)
+}
 
 @main struct DeviceStandaloneRunner {
     static func main() async {
@@ -54,7 +57,15 @@ func XCTAssertNil(_ actual: Any?, file: StaticString = #filePath, line: UInt = #
             ("diagnostics cycle filled", decoder.testDiagnosticsCycleCountFilled),
             ("diagnostics invalid cycle", decoder.testDiagnosticsInvalidCycleRejectedAsFailed),
             ("diagnostics failed keeps basic", decoder.testDiagnosticsFailedKeepsBasicAndNotAttemptedStaysNil),
-            ("missing framework and symbols", reader.testMissingFrameworkAndSymbolsDowngrade)
+            ("issue Codable backward compatible", decoder.testIssueCodableBackwardCompatible),
+            ("snapshot messages English", decoder.testSnapshotMessagesAreEnglish),
+            ("payload length header", decoder.testPayloadLengthHeaderValidation),
+            ("missing framework and symbols", reader.testMissingFrameworkAndSymbolsDowngrade),
+            ("gate busy vs quarantined", reader.testGateAttemptDistinguishesBusyAndQuarantined),
+            ("scan policy without device", reader.testScanPolicyWithoutDeviceWaitsUntilHardEnd),
+            ("scan policy quiet period", reader.testScanPolicyStopsAfterQuietPeriodWithDevice),
+            ("transport skips only Wi-Fi", reader.testTransportPolicySkipsOnlyWiFi),
+            ("interface type symbol optional", reader.testInterfaceTypeSymbolIsOptional)
         ]
         for (name, test) in tests {
             let before = failures
@@ -67,7 +78,10 @@ func XCTAssertNil(_ actual: Any?, file: StaticString = #filePath, line: UInt = #
         before = failures
         await reader.testSuccessfulReadAndQuarantinedGate()
         print("\(before == failures ? "PASS" : "FAIL") success and quarantine")
-        print("\(tests.count + 2) test cases, \(assertions) assertions, \(failures) failures")
+        before = failures
+        await reader.testGateRefusalReasonsInSnapshots()
+        print("\(before == failures ? "PASS" : "FAIL") gate refusal reasons")
+        print("\(tests.count + 3) test cases, \(assertions) assertions, \(failures) failures")
         exit(failures == 0 ? 0 : 1)
     }
 }

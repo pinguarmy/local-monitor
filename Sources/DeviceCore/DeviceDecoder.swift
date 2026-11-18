@@ -94,13 +94,17 @@ enum DeviceDecoder {
         let message: String
         switch detailsStatus {
         case "available":
-            message = "温度、容量与循环次数来自设备电池组诊断只读查询。"
+            message = "Temperature, capacity and cycle count come from a read-only battery pack diagnostics query."
         case "partial":
-            message = "电池组诊断只读查询仅返回部分指标；缺失项未显示。"
+            message = "The read-only battery pack diagnostics query returned only some metrics; missing ones are not shown."
         case "failed":
-            message = percentage == nil ? "设备未提供电池百分比；电池诊断读取失败。" : "电池诊断读取失败，仅显示基础电量。"
+            message = percentage == nil
+                ? "The device did not report a battery percentage, and battery diagnostics could not be read."
+                : "Battery diagnostics could not be read; only the basic charge level is shown."
         default:
-            message = percentage == nil ? "设备未提供电池百分比；温度、容量和循环次数在此只读接口中不可用。" : "温度、容量和循环次数在此只读接口中不可用。"
+            message = percentage == nil
+                ? "The device did not report a battery percentage. Temperature, capacity and cycle count are not available from this read-only interface."
+                : "Temperature, capacity and cycle count are not available from this read-only interface."
         }
         return ConnectedDeviceSnapshot(
             id: "device-\(ordinal)", productType: type,

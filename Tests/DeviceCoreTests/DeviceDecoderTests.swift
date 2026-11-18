@@ -254,4 +254,68 @@ final class DeviceDecoderTests: XCTestCase {
         XCTAssertNil(skipped.batteryDetailsSource)
         XCTAssertNil(skipped.cycleCount)
     }
+
+    /// `issue` is optional in JSON: a nil issue is not encoded, a legacy payload without the key
+    /// decodes as nil, and a present issue round-trips under its stable raw value.
+    func testIssueCodableBackwardCompatible() throws {
+        let plain = DeviceSnapshot(capturedAt: Date(timeIntervalSinceReferenceDate: 0), status: .noDevice,
+                                   frameworkLoaded: true, message: "fixture")
+        XCTAssertNil(plain.issue)
+        let plainJSON = String(decoding: try JSONEncoder().encode(plain), as: UTF8.self)
+        XCTAssertFalse(plainJSON.contains("issue"))
+        let legacy = Data(#"{"capturedAt":0,"status":"noDevice","devices":[],"frameworkLoaded":true,"message":"fixture"}"#.utf8)
+        let decodedLegacy = try JSONDecoder().decode(DeviceSnapshot.self, from: legacy)
+        XCTAssertNil(decodedLegacy.issue)
+        XCTAssertEqual(decodedLegacy, plain)
+        let flagged = DeviceSnapshot(capturedAt: Date(timeIntervalSinceReferenceDate: 0), status: .unavailable,
+                                     frameworkLoaded: true, message: "fixture", issue: .notificationCleanupFailed)
+        let flaggedData = try JSONEncoder().encode(flagged)
+        XCTAssertTrue(String(decoding: flaggedData, as: UTF8.self).contains(#""issue":"notificationCleanupFailed""#))
+        XCTAssertEqual(try JSONDecoder().decode(DeviceSnapshot.self, from: flaggedData), flagged)
+        XCTAssertEqual(DeviceReadIssue.frameworkUnavailable.rawValue, "frameworkUnavailable")
+        XCTAssertEqual(DeviceReadIssue.subscriptionFailed.rawValue, "subscriptionFailed")
+        XCTAssertEqual(DeviceReadIssue.readInProgress.rawValue, "readInProgress")
+        XCTAssertEqual(DeviceReadIssue.deviceUnreadable.rawValue, "deviceUnreadable")
+    }
+
+    /// Every message this module puts into snapshots is plain English (ASCII) text.
+    func testSnapshotMessagesAreEnglish() {
+        func isASCII(_ text: String?) -> Bool { text.map { $0.unicodeScalars.allSatisfy { $0.isASCII } } ?? false }
+        let cases: [(BatteryDiagnostics, [String: Any])] = [
+            (.notAttempted, [:]), (.notAttempted, ["BatteryCurrentCapacity": 50]),
+            (.failed, [:]), (.failed, ["BatteryCurrentCapacity": 50]),
+            (.values(["CycleCount": 42]), [:]),
+            (.values(["Temperature": 3025, "CycleCount": 42, "DesignCapacity": 4000, "AppleRawMaxCapacity": 3950]), [:])
+        ]
+        for (diagnostics, battery) in cases {
+            let value = DeviceDecoder.decode(product: phone, battery: battery, diagnostics: diagnostics, ordinal: 1)
+            XCTAssertTrue(isASCII(value?.message))
+        }
+        let missing = MobileDeviceLibrary(paths: ["/nonexistent/DeviceCore-fixture.framework/DeviceCore-fixture"])
+        XCTAssertTrue(isASCII(MobileDeviceBackend.read(library: missing, timeout: 0.1, progress: DeviceReadProgress()).message))
+        for message in [DeviceMessage.frameworkUnavailable, DeviceMessage.subscriptionFailed,
+                        DeviceMessage.notificationCleanupFailed, DeviceMessage.readInProgress,
+                        DeviceMessage.timedOut, DeviceMessage.timedOutDuringRead,
+                        DeviceMessage.communicationTimedOut, DeviceMessage.noDevice,
+                        DeviceMessage.noUSBDevice, DeviceMessage.noReadableDevice,
+                        DeviceMessage.available, DeviceMessage.partiallyAvailable,
+                        DeviceMessage.requiresUnlockAndTrust, DeviceMessage.deviceUnreadable] {
+            XCTAssertTrue(isASCII(message))
+        }
+    }
+
+    /// The untrusted 4-byte big-endian reply length is bounded before any allocation.
+    func testPayloadLengthHeaderValidation() {
+        XCTAssertEqual(DiagnosticsBatteryReader.payloadLength(header: Data([0, 0, 1, 0])), 256)
+        XCTAssertEqual(DiagnosticsBatteryReader.payloadLength(header: Data([0, 4, 0, 0])), 262_144)
+        XCTAssertNil(DiagnosticsBatteryReader.payloadLength(header: Data([0, 4, 0, 1])))
+        XCTAssertNil(DiagnosticsBatteryReader.payloadLength(header: Data([0, 0, 0, 0])))
+        XCTAssertNil(DiagnosticsBatteryReader.payloadLength(header: Data([0xff, 0xff, 0xff, 0xff])))
+        XCTAssertNil(DiagnosticsBatteryReader.payloadLength(header: Data([0x80, 0, 0, 0])))
+        XCTAssertNil(DiagnosticsBatteryReader.payloadLength(header: Data([0, 1, 0])))
+        XCTAssertNil(DiagnosticsBatteryReader.payloadLength(header: Data()))
+        // A slice with a non-zero start index decodes the same as a fresh buffer.
+        let framed = Data([9, 9, 0, 0, 1, 0])
+        XCTAssertEqual(DiagnosticsBatteryReader.payloadLength(header: framed.suffix(4)), 256)
+    }
 }

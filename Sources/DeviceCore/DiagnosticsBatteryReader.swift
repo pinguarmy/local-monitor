@@ -92,14 +92,22 @@ enum DiagnosticsBatteryReader {
             return sendAll(connection, send, base, buffer.count, deadline, progress)
         }
         guard sentBody else { return nil }
-        guard let headerData = recvExact(connection, receive, 4, deadline, progress) else { return nil }
-        // Manual big-endian decode: Data bytes are not guaranteed aligned for load(as:).
-        let length = headerData.reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
-        guard length > 0, Int(length) <= maxPayloadBytes else { return nil }
-        guard let payload = recvExact(connection, receive, Int(length), deadline, progress),
+        guard let headerData = recvExact(connection, receive, 4, deadline, progress),
+              let length = payloadLength(header: headerData) else { return nil }
+        guard let payload = recvExact(connection, receive, length, deadline, progress),
               let object = try? PropertyListSerialization.propertyList(from: payload, format: nil),
               let dict = object as? [String: Any] else { return nil }
         return dict
+    }
+
+    /// Validates the untrusted 4-byte big-endian length prefix of a reply. Returns nil for a
+    /// short header, a zero length, or anything above maxPayloadBytes. Pure, for fixture tests.
+    static func payloadLength(header: Data) -> Int? {
+        guard header.count == 4 else { return nil }
+        // Manual big-endian decode: Data bytes are not guaranteed aligned for load(as:).
+        let length = header.reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
+        guard length > 0, Int(length) <= maxPayloadBytes else { return nil }
+        return Int(length)
     }
 
     /// Byte-counting semantics: returns bytes written, negative on error. Loop partial writes.
