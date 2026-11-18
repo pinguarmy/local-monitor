@@ -8,11 +8,13 @@ A lightweight macOS menu bar app for system resources, Mac battery health, and b
 
 | Tab | Metrics |
 | --- | --- |
-| System | CPU usage, cores and load; GPU model and utilization; memory, swap and pressure; disk capacity; network rates and totals. |
-| Battery | Charge and power status, design and full-charge capacity, estimated capacity ratio, cycles, temperature, voltage, current and battery-side power. |
-| Devices | Connected iPhone/iPad model, OS version and available battery charge, charging status, temperature, cycles and capacity. |
+| System | CPU usage, cores and load; GPU model and utilization; memory, swap and pressure; disk usage; network rates and totals. |
+| Battery | Charge and power status, time remaining or time until full, power adapter wattage, design and full-charge capacity, estimated capacity ratio, cycles, temperature, voltage, current and battery-side power. |
+| Devices | USB-connected iPhone/iPad model, OS version and available battery charge, charging status, temperature, cycles and capacity. |
 
-Unavailable metrics are hidden. System metrics update only while the System tab is visible and stop when the panel closes. Mac battery readings use power events or manual refresh; device readings run when you open the Devices tab or refresh it.
+Unavailable metrics are hidden. System metrics update only while the System tab is visible and stop when the panel closes. Mac battery readings use power events or manual refresh; device readings run when you open the Devices tab or refresh it. On a Mac without an internal battery the menu bar item shows a neutral monitor icon.
+
+The interface is available in English and Simplified Chinese and follows the system language. Shortcuts in the panel: ⌘1–⌘3 switch tabs, ⌘R refreshes, ⌘Q quits. Launch at Login is an opt-in toggle in the panel's menu.
 
 ## Install
 
@@ -20,7 +22,7 @@ Unavailable metrics are hidden. System metrics update only while the System tab 
 2. Extract it and drag `LocalMonitor.app` into Applications or `~/Applications`.
 3. Open the app and use its menu bar item.
 
-Quit the previous version before replacing it. To connect a phone, use a data cable, unlock the device, and confirm trust yourself if macOS asks.
+Quit the previous version before replacing it. To connect a phone, use a data cable, unlock the device, and confirm trust yourself if macOS asks. Devices that are only visible over Wi-Fi are skipped.
 
 The minimum deployment target is macOS 13. Downloads currently support Apple Silicon; Intel users can build from source. This is a Beta release with an ad-hoc signature, not Apple notarization. Use the normal macOS open process if prompted; do not disable system security protections.
 
@@ -36,8 +38,8 @@ Requires macOS, Swift 5.9+ and Xcode Command Line Tools. No third-party package 
 
 ```bash
 bash scripts/build-app.sh      # dist/LocalMonitor.app
-bash scripts/test-direct.sh   # Standalone tests
-bash scripts/install-app.sh   # Quit the app before installing
+bash scripts/test-direct.sh    # Standalone tests
+bash scripts/install-app.sh    # Quit the app before installing
 ```
 
 A full Xcode environment also supports `swift build` and `swift test`.
@@ -51,4 +53,4 @@ A full Xcode environment also supports `swift build` and `swift test`.
 .build/direct/local-monitor-cli --all
 ```
 
-Each invocation outputs one JSON snapshot, without continuous background sampling. Missing fields are omitted and timestamps use ISO 8601.
+Each invocation outputs one JSON snapshot, without continuous background sampling. Missing fields are omitted, timestamps use ISO 8601, and explanatory text in the output is English regardless of the system language.

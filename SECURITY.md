@@ -4,9 +4,9 @@ This is an early Beta release. Report security issues through GitHub's private v
 
 ## Permissions and operations
 
-The app does not require root, pair or trust devices automatically, install device-side software, or change charging, fans, sleep or system security settings. Device communication sends a fixed battery IORegistry read. There is no arbitrary request interface and no Restart, Shutdown, Sleep or property-write command.
+The app does not require root, pair or trust devices automatically, install device-side software, or change charging, fans, sleep or system security settings. Device communication sends a fixed battery IORegistry read over a wired connection; devices reporting a Wi-Fi interface are skipped. There is no arbitrary request interface and no Restart, Shutdown, Sleep or property-write command.
 
-There is no network service, automatic updater, third-party runtime dependency, account or embedded credential. The software is provided as-is under the MIT License.
+There is no network service, automatic updater, third-party runtime dependency, account or embedded credential. The optional Launch at Login toggle registers the app itself through the public SMAppService API; no helper, agent or daemon is installed. The software is provided as-is under the MIT License.
 
 ## Known risks
 

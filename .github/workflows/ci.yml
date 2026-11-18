@@ -20,3 +20,24 @@ jobs:
         run: bash scripts/build-app.sh
       - name: Verify public files and application
         run: python3 scripts/check-release-privacy.py
+      - name: Launch the app and open the panel
+        timeout-minutes: 2
+        run: dist/LocalMonitor.app/Contents/MacOS/LocalMonitor --smoke-test --interaction-test --language en
+      - name: Sampling lifecycle and panel previews
+        timeout-minutes: 3
+        run: |
+          app=dist/LocalMonitor.app/Contents/MacOS/LocalMonitor
+          mkdir -p .build/previews
+          for language in en zh-Hans; do
+            "$app" --sampling-test --language "$language" --preview-page system --render-preview ".build/previews/system-$language.png"
+            for page in battery devices; do
+              "$app" --smoke-test --language "$language" --preview-page "$page" --render-preview ".build/previews/$page-$language.png"
+            done
+          done
+      - name: Upload panel previews
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: panel-previews
+          path: .build/previews/*.png
+          if-no-files-found: error
+          retention-days: 7

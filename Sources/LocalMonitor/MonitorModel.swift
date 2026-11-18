@@ -20,14 +20,22 @@ final class MonitorModel: ObservableObject {
     private let reader = SerialSystemReader()
     private let deviceReader = DeviceReader()
     private var timer: Timer?
+    private var warmUpTimer: Timer?
     private var panelVisible = false
     private var sleeping = false
+    /// At most one system read runs at a time.
     private var inFlight = false
+    /// A refresh was requested while a read was in flight; issue it as soon as that read returns.
+    private var refreshPending = false
     private var generation = 0
     private(set) var systemReadCount = 0
     private(set) var deviceReadCount = 0
 
-    init(initialDevices: DeviceSnapshot? = nil) { self.devices = initialDevices }
+    /// `initialSystem` and `initialDevices` seed preview renders without starting any reads.
+    init(initialDevices: DeviceSnapshot? = nil, initialSystem: SystemSnapshot? = nil) {
+        self.devices = initialDevices
+        self.system = initialSystem
+    }
 
     func updateVisibility(_ visible: Bool, sleeping: Bool = false) {
         panelVisible = visible
@@ -44,23 +52,55 @@ final class MonitorModel: ObservableObject {
     private func configureSampling() {
         timer?.invalidate()
         timer = nil
+        warmUpTimer?.invalidate()
+        warmUpTimer = nil
         generation += 1
         let interval = SamplingPolicy.systemInterval(panelVisible: panelVisible, page: page,
             isSleeping: sleeping, lowPower: ProcessInfo.processInfo.isLowPowerModeEnabled)
         isSampling = interval != nil
-        guard let interval else { return }
+        guard let interval else {
+            refreshPending = false
+            return
+        }
+        // Enqueued before the next read. A read already in flight finishes first on the same
+        // serial queue; its result carries the old generation and is discarded.
         queue.async { [reader] in reader.value.resetBaselines() }
         refreshSystem()
+        let requestGeneration = generation
+        if let delay = SamplingPolicy.warmUpDelay(interval: interval) {
+            let warmUp = Timer(timeInterval: delay, repeats: false) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    guard let self, self.generation == requestGeneration else { return }
+                    self.refreshSystem()
+                }
+            }
+            RunLoop.main.add(warmUp, forMode: .common)
+            warmUpTimer = warmUp
+        }
         let timer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in self?.refreshSystem() }
+            Task { @MainActor [weak self] in self?.timerTick() }
         }
         timer.tolerance = interval * 0.2
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
     }
 
+    /// Regular ticks skip while a read is still running instead of queueing a back-to-back read.
+    private func timerTick() {
+        guard !inFlight else { return }
+        refreshSystem()
+    }
+
+    /// Manual refresh, sampling (re)start and the warm-up sample. If a read is in flight, the
+    /// request is remembered and issued when that read returns, so a restart always produces a
+    /// prompt sample of the new generation without ever running two reads concurrently.
     func refreshSystem() {
-        guard panelVisible, page == .system, !sleeping, !inFlight else { return }
+        guard panelVisible, page == .system, !sleeping else { return }
+        guard !inFlight else {
+            refreshPending = true
+            return
+        }
+        refreshPending = false
         inFlight = true
         let requestGeneration = generation
         queue.async { [reader, weak self] in
@@ -69,8 +109,13 @@ final class MonitorModel: ObservableObject {
                 guard let self else { return }
                 self.inFlight = false
                 self.systemReadCount += 1
-                guard self.generation == requestGeneration, self.isSampling else { return }
-                self.system = sample
+                if self.generation == requestGeneration, self.isSampling {
+                    self.system = sample
+                }
+                if self.refreshPending {
+                    self.refreshPending = false
+                    self.refreshSystem()
+                }
             }
         }
     }
