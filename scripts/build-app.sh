@@ -28,6 +28,17 @@ try:
     shutil.copy2(root / '.build/direct/LocalMonitor', new / 'Contents/MacOS/LocalMonitor')
     shutil.copy2(root / 'Resources/Info.plist', new / 'Contents/Info.plist')
     subprocess.run(['plutil', '-lint', str(new / 'Contents/Info.plist')], check=True)
+    # Localized bundle names only; UI strings are compiled into the executable.
+    localizations = sorted((root / 'Resources').glob('*.lproj'))
+    if not localizations:
+        raise SystemExit('No Resources/*.lproj directories found')
+    for lproj in localizations:
+        strings = lproj / 'InfoPlist.strings'
+        if lproj.is_symlink() or not strings.is_file() or strings.is_symlink():
+            raise SystemExit(f'Expected a regular {lproj.name}/InfoPlist.strings')
+        subprocess.run(['plutil', '-lint', str(strings)], check=True)
+        (new / 'Contents/Resources' / lproj.name).mkdir()
+        shutil.copy2(strings, new / 'Contents/Resources' / lproj.name / 'InfoPlist.strings')
     subprocess.run(['strip', '-x', str(new / 'Contents/MacOS/LocalMonitor')], check=True)
     subprocess.run(['codesign', '--force', '--sign', '-', str(new)], check=True)
     subprocess.run(['codesign', '--verify', '--strict', '--verbose=2', str(new)], check=True)

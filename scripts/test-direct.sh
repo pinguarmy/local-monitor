@@ -7,16 +7,30 @@ shopt -s nullglob
 bash "$ROOT/scripts/build-direct.sh"
 ARCH="$(uname -m)"
 COMMON=(-swift-version 5 -sdk "$(xcrun --show-sdk-path)" -target "$ARCH-apple-macosx13.0" -module-cache-path "$OUT/module-cache" -parse-as-library -I "$OUT" -L "$OUT" -lBatteryCore -lSystemCore -lDeviceCore -framework IOKit -framework Metal)
+# Every standalone runner keeps a hand-written list of cases. Fail before compiling when a
+# defined test is not registered (it would silently never run) or a registered one is gone.
 python3 - "$ROOT" <<'PY'
 import pathlib, re, sys
 root = pathlib.Path(sys.argv[1])
-tests = (root / 'Tests/BatteryCoreTests/BatteryDecoderTests.swift').read_text()
-runner = (root / 'Tests/BatteryCoreTests/StandaloneRunner.swift').read_text()
-defined = set(re.findall(r'func (test\w+)\(', tests))
-registered = set(re.findall(r'tests\.(test\w+)', runner))
-if defined != registered:
-    raise SystemExit(f'Standalone test registration mismatch: missing={defined-registered}, unknown={registered-defined}')
-print(f'Standalone registration: {len(defined)} tests, all registered')
+total = 0
+for module in ('BatteryCoreTests', 'SystemCoreTests', 'DeviceCoreTests'):
+    directory = root / 'Tests' / module
+    runner = directory / 'StandaloneRunner.swift'
+    sources = [path for path in sorted(directory.glob('*.swift')) if path != runner]
+    if not runner.is_file() or not sources:
+        raise SystemExit(f'{module}: missing StandaloneRunner.swift or test sources')
+    defined = set()
+    for path in sources:
+        defined |= set(re.findall(r'\bfunc (test\w+)\(', path.read_text()))
+    registered = set(re.findall(r'\.(test\w+)\b', runner.read_text()))
+    if not defined:
+        raise SystemExit(f'{module}: no test functions found')
+    if defined != registered:
+        raise SystemExit(f'{module}: standalone registration mismatch: '
+                         f'unregistered={sorted(defined - registered)}, unknown={sorted(registered - defined)}')
+    total += len(defined)
+    print(f'Standalone registration: {module}: {len(defined)} tests, all registered')
+print(f'Standalone registration: {total} tests across all modules')
 PY
 xcrun swiftc "${COMMON[@]}" -D BATTERY_STANDALONE \
   "$ROOT/Tests/BatteryCoreTests/BatteryDecoderTests.swift" \
