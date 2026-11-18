@@ -41,19 +41,3 @@ jobs:
           path: .build/previews/*.png
           if-no-files-found: error
           retention-days: 7
-      - name: TEMPORARY - print reduced previews to the log
-        run: |
-          python3 -m venv .build/pv && .build/pv/bin/pip install --quiet pillow
-          .build/pv/bin/python - <<'PY'
-          import base64, io
-          from PIL import Image
-          for name in ('system-en', 'system-zh-Hans', 'battery-en', 'devices-zh-Hans'):
-              image = Image.open(f'.build/previews/{name}.png').convert('L').quantize(8)
-              buffer = io.BytesIO()
-              image.save(buffer, 'PNG', optimize=True)
-              text = base64.b64encode(buffer.getvalue()).decode()
-              print(f'PREVIEW_BEGIN {name} size={image.size} bytes={len(buffer.getvalue())}')
-              for start in range(0, len(text), 6000):
-                  print('PREVIEW_DATA ' + text[start:start + 6000])
-              print(f'PREVIEW_END {name}')
-          PY

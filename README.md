@@ -12,7 +12,7 @@ A lightweight macOS menu bar app for system resources, Mac battery health, and b
 | Battery | Charge and power status, time remaining or time until full, power adapter wattage, design and full-charge capacity, estimated capacity ratio, cycles, temperature, voltage, current and battery-side power. |
 | Devices | USB-connected iPhone/iPad model, OS version and available battery charge, charging status, temperature, cycles and capacity. |
 
-Unavailable metrics are hidden. System metrics update only while the System tab is visible and stop when the panel closes. Mac battery readings use power events or manual refresh; device readings run when you open the Devices tab or refresh it. On a Mac without an internal battery the menu bar item shows a neutral monitor icon.
+Unavailable metrics are hidden. System metrics update only while the System tab is visible and stop when the panel closes. Mac battery readings use power events or manual refresh; device readings run when you open the Devices tab or refresh it. On a Mac without an internal battery the menu bar item shows a neutral gauge icon instead of an empty battery.
 
 The interface is available in English and Simplified Chinese and follows the system language. Shortcuts in the panel: ⌘1–⌘3 switch tabs, ⌘R refreshes, ⌘Q quits. Launch at Login is an opt-in toggle in the panel's menu.
 
