@@ -17,7 +17,8 @@ public enum BatteryDecoder {
     public static func decode(
         powerSources: [[String: Any]], registry: [String: Any], date: Date,
         readErrors: [BatteryReadError] = [], registryTemperatureUnit: BatteryTemperatureUnit? = nil,
-        amperageEncoding: BatteryAmperageEncoding = .signedMilliAmps
+        amperageEncoding: BatteryAmperageEncoding = .signedMilliAmps,
+        adapter: [String: Any] = [:]
     ) -> BatterySnapshot {
         var notes: [String] = []
         let internalSources = powerSources.filter {
@@ -58,12 +59,48 @@ public enum BatteryDecoder {
         }
         if percentage == nil { notes.append("Battery percentage is unavailable because IOPowerSources capacity values are missing or invalid.") }
         let reportedPower = source?["Power Source State"] as? String
-        let power = ["AC Power", "Battery Power", "Off Line"].contains(reportedPower ?? "") ? reportedPower! : "Unknown"
+        let power: String
+        if let reportedPower, ["AC Power", "Battery Power", "Off Line"].contains(reportedPower) {
+            power = reportedPower
+        } else {
+            power = "Unknown"
+        }
         if power == "Unknown" { notes.append("The active power source is unavailable.") }
         let charging = boolean(source?["Is Charging"])
         let charged = boolean(source?["Is Charged"])
         if charging == nil { notes.append("IOPowerSources charging state is unavailable; AC attachment alone does not imply charging.") }
         if charged == nil { notes.append("IOPowerSources fully-charged state is unavailable; it is not inferred from percentage.") }
+        // IOPSKeys.h: both estimates are minutes, and -1 means macOS is still calculating.
+        // Each is shown only in the state it describes; the decoder never estimates time itself.
+        var timeToEmpty: Int?
+        if power == "Battery Power", charging == false {
+            timeToEmpty = minutes(source?["Time to Empty"])
+            if timeToEmpty != nil {
+                notes.append("Time to empty is the macOS IOPowerSources estimate in minutes; it changes with load.")
+            } else if integer(source?["Time to Empty"]) == -1 {
+                notes.append("macOS is still calculating time to empty.")
+            } else {
+                notes.append("Time to empty is missing or outside the accepted range 1...6000 minutes.")
+            }
+        }
+        var timeToFull: Int?
+        if charging == true {
+            timeToFull = minutes(source?["Time to Full Charge"])
+            if timeToFull != nil {
+                notes.append("Time to full charge is the macOS IOPowerSources estimate in minutes.")
+            } else if integer(source?["Time to Full Charge"]) == -1 {
+                notes.append("macOS is still calculating time to full charge.")
+            } else {
+                notes.append("Time to full charge is missing or outside the accepted range 1...6000 minutes.")
+            }
+        }
+        // The reader copies only Watts out of IOPSCopyExternalPowerAdapterDetails.
+        let adapterWatts = integer(adapter["Watts"]).flatMap { (1...1000).contains($0) ? $0 : nil }
+        if adapterWatts != nil {
+            notes.append("Adapter watts is the connected adapter's rating, not current power draw.")
+        } else if !adapter.isEmpty {
+            notes.append("Power adapter wattage is missing or outside the accepted range 1...1000 W.")
+        }
         let condition = nonemptyString(source?["BatteryHealthCondition"]) ?? nonemptyString(source?["BatteryHealth"])
         if condition == nil { notes.append("IOPowerSources battery health condition is unavailable.") }
 
@@ -129,7 +166,8 @@ public enum BatteryDecoder {
             maximumCapacityMAh: maximum, designCapacityMAh: design, healthPercent: health,
             cycleCount: cycles, temperatureCelsius: temperature, voltageVolts: voltageMV.map { $0 / 1000 },
             amperageMA: current, powerWatts: watts, limitations: notes,
-            availability: availability, readErrors: readErrors, temperatureSource: temperatureSource
+            availability: availability, readErrors: readErrors, temperatureSource: temperatureSource,
+            timeToEmptyMinutes: timeToEmpty, timeToFullChargeMinutes: timeToFull, adapterWatts: adapterWatts
         )
     }
 
@@ -143,6 +181,9 @@ public enum BatteryDecoder {
     }
     private static func integer(_ value: Any?) -> Int? {
         number(value).flatMap { Int(exactly: $0) }
+    }
+    private static func minutes(_ value: Any?) -> Int? {
+        integer(value).flatMap { (1...6000).contains($0) ? $0 : nil }
     }
     private static func capacity(_ value: Any?) -> Int? {
         integer(value).flatMap { (0...100_000).contains($0) ? $0 : nil }

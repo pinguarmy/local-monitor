@@ -15,9 +15,9 @@ struct MonitorCLI {
         let arguments = Array(CommandLine.arguments.dropFirst())
         do {
             switch arguments {
-            case ["--help"]:
+            case ["--help"], ["-h"]:
                 print("""
-                Usage: local-monitor-cli [--battery | --system | --devices | --all | --help]
+                Usage: local-monitor-cli [--battery | --system | --devices | --all | --help | -h]
                 Default/--battery: one event-independent read-only battery snapshot.
                 --system: CPU/GPU/memory/disk/network snapshot with a single 1s baseline interval.
                 --devices: one local iPhone/iPad query, no pairing or user-content reads.
@@ -41,7 +41,7 @@ struct MonitorCLI {
             case ["--devices"]:
                 let devices = await DeviceReader().read(timeout: 5)
                 try output(devices)
-                if ["unavailable", "timedOut"].contains(devices.status.rawValue) { exit(4) }
+                if devices.status == .unavailable || devices.status == .timedOut { exit(4) }
             default:
                 FileHandle.standardError.write(Data("Unsupported arguments. Use --help.\n".utf8))
                 exit(2)

@@ -12,6 +12,13 @@ public final class SystemReader {
     private let logicalCoreCount: Int
     private let physicalCoreCount: Int?
     private let gpuName: String?
+    /// Method notes that apply to every sample. Built once, not on every read.
+    private static let baseLimitations: [String] = [
+        "CPU usage is the busy share of the Mach tick delta between two samples; the 1/5/15-minute load averages are not percentages.",
+        "Memory used = max(anonymous resident pages - purgeable pages, 0) + wired + compressor pages; available = total - used, a reclaimable estimate. Pressure is read separately from the kernel, not derived from the used ratio.",
+        "Disk capacity comes from statfs(\"/\"); APFS volumes share space. No directories are scanned and no file sizes are computed.",
+        "Network totals count only active physical enN interfaces, deduplicated by interface index; loopback, VPN, bridge, AWDL and other overlay interfaces are excluded. They are not internet billing totals."
+    ]
 
     public init() {
         logicalCoreCount = max(1, Int(Self.sysctlInt32("hw.logicalcpu") ?? Int32(ProcessInfo.processInfo.processorCount)))
@@ -30,12 +37,7 @@ public final class SystemReader {
         let timestamp = Date()
         let process = ProcessInfo.processInfo
         let uptime = process.systemUptime
-        var limitations = [
-            "CPU 使用率来自两次 Mach tick 差值；1/5/15 分钟负载不是百分比。",
-            "内存 used = max(匿名常驻页 - 可清除页, 0) + wired + compressor；available = 总内存 - used，是可回收估算。pressure 单独读取内核状态，不用内存占比推算。",
-            "根文件系统容量来自 statfs(/)，APFS 卷共享空间；不扫描目录，不计算文件大小。",
-            "网络只累计已启用的 enN 物理接口，按接口索引去重；排除 lo、VPN、bridge、AWDL 等叠加接口，不等同于互联网计费流量。"
-        ]
+        var limitations = Self.baseLimitations
 
         let host = mach_host_self()
         defer { mach_port_deallocate(mach_task_self_, host) }
@@ -48,31 +50,34 @@ public final class SystemReader {
                            loadAverage1: loadCount >= 1 ? averages[0] : nil,
                            loadAverage5: loadCount >= 2 ? averages[1] : nil,
                            loadAverage15: loadCount >= 3 ? averages[2] : nil)
-        if ticks == nil { limitations.append("Mach CPU tick 读取失败，CPU 使用率不可用。") }
-        else if usage == nil { limitations.append("CPU 使用率需要两次有效采样；新建、恢复或计数重置后的首采样不显示百分比。") }
+        if ticks == nil { limitations.append("Reading Mach CPU ticks failed; CPU usage is unavailable.") }
+        else if usage == nil { limitations.append("CPU usage needs two valid samples; the first sample after creation, resetBaselines() or a counter reset has no percentage.") }
 
         let gpuUtilization = Self.readGPUUtilization()
         let gpu: GPUStats? = gpuName != nil || gpuUtilization != nil ? GPUStats(name: gpuName, utilizationPercent: gpuUtilization) : nil
-        if gpuUtilization == nil { limitations.append("GPU 未暴露白名单 IOAccelerator PerformanceStatistics 百分比，利用率不可用；不使用 sudo、powermetrics 或 SMC。") }
-        else { limitations.append("GPU 利用率读取 IOAccelerator PerformanceStatistics 已知百分比键，驱动未公开该计数的采样时间窗口。") }
+        if gpuUtilization == nil { limitations.append("The GPU does not expose an allowlisted IOAccelerator PerformanceStatistics percentage, so utilization is unavailable; sudo, powermetrics and the SMC are not used.") }
+        else { limitations.append("GPU utilization reads a known percentage key from IOAccelerator PerformanceStatistics; the driver does not document that counter's sampling window.") }
 
         let memory = Self.readMemory(host: host)
-        if memory == nil { limitations.append("Mach 内存统计读取失败，内存指标不可用。") }
+        if memory == nil { limitations.append("Reading Mach memory statistics failed; memory metrics are unavailable.") }
         else {
-            if memory?.swapUsedBytes == nil { limitations.append("vm.swapusage 读取失败，swap 用量不可用。") }
-            if memory?.pressure == .unknown { limitations.append("内核未提供可识别的 memory_pressure，内存压力未知。") }
+            if memory?.swapUsedBytes == nil { limitations.append("Reading vm.swapusage failed; swap usage is unavailable.") }
+            if memory?.pressure == .unknown { limitations.append("The kernel did not report a recognized memory pressure level; memory pressure is unknown.") }
         }
         let disk = Self.readDisk()
-        if disk == nil { limitations.append("根文件系统 statfs 读取失败，磁盘容量不可用。") }
+        if disk == nil { limitations.append("statfs on the root filesystem failed; disk capacity is unavailable.") }
 
         var network: NetworkStats?
         if let interfaces = Self.readNetworkInterfaces() {
             network = SystemMetrics.network(interfaces: interfaces, uptime: uptime, previous: previousNetwork)
             previousNetwork = NetworkBaseline(uptime: uptime, interfaces: interfaces)
-            if network?.intervalSeconds == nil { limitations.append("网络速率需要同一组接口的两次有效采样；接口变化或计数重置时重新建立基线。") }
+            if interfaces.isEmpty {
+                // Without this, an offline Mac would be told forever that it needs a second sample.
+                limitations.append("No active physical enN interface was found; network totals are 0 and rates are unavailable.")
+            } else if network?.intervalSeconds == nil { limitations.append("Network rates need two valid samples of the same set of interfaces; the baseline is re-established when interfaces change or a counter resets.") }
         } else {
             previousNetwork = nil
-            limitations.append("网络接口计数读取失败，流量与速率不可用。")
+            limitations.append("Reading network interface counters failed; traffic totals and rates are unavailable.")
         }
         return SystemSnapshot(timestamp: timestamp, cpu: cpu, gpu: gpu, memory: memory, disk: disk, network: network,
                               thermalState: Self.thermalState(process.thermalState), isLowPowerModeEnabled: process.isLowPowerModeEnabled,

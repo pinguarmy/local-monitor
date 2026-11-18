@@ -38,6 +38,12 @@ public struct BatterySnapshot: Codable, Sendable, Equatable {
     public let amperageMA: Double?
     /// Signed battery-side estimate, not wall-adapter or whole-system consumption.
     public let powerWatts: Double?
+    /// macOS IOPowerSources estimate in minutes while discharging on battery power; nil otherwise.
+    public let timeToEmptyMinutes: Int?
+    /// macOS IOPowerSources estimate in minutes while charging; nil otherwise.
+    public let timeToFullChargeMinutes: Int?
+    /// The connected adapter's rated wattage, not the current power draw.
+    public let adapterWatts: Int?
     public let limitations: [String]
 
     public init(
@@ -48,7 +54,8 @@ public struct BatterySnapshot: Codable, Sendable, Equatable {
         voltageVolts: Double? = nil, amperageMA: Double? = nil, powerWatts: Double? = nil,
         limitations: [String] = [], availability: BatteryAvailability? = nil,
         readErrors: [BatteryReadError] = [], temperatureSource: String? = nil,
-        reportedHealthPercent: Double? = nil
+        reportedHealthPercent: Double? = nil, timeToEmptyMinutes: Int? = nil,
+        timeToFullChargeMinutes: Int? = nil, adapterWatts: Int? = nil
     ) {
         self.timestamp = timestamp
         self.availability = availability ?? (isPresent ? .present : (readErrors.isEmpty ? .absent : .unknown))
@@ -69,6 +76,9 @@ public struct BatterySnapshot: Codable, Sendable, Equatable {
         self.voltageVolts = voltageVolts
         self.amperageMA = amperageMA
         self.powerWatts = powerWatts
+        self.timeToEmptyMinutes = timeToEmptyMinutes
+        self.timeToFullChargeMinutes = timeToFullChargeMinutes
+        self.adapterWatts = adapterWatts
         self.limitations = limitations
     }
 
@@ -76,6 +86,7 @@ public struct BatterySnapshot: Codable, Sendable, Equatable {
         case timestamp, isPresent, availability, readErrors, percentage, powerSource, isCharging, isCharged
         case condition, maximumCapacityMAh, designCapacityMAh, healthPercent, reportedHealthPercent
         case cycleCount, temperatureCelsius, temperatureSource, voltageVolts, amperageMA, powerWatts, limitations
+        case timeToEmptyMinutes, timeToFullChargeMinutes, adapterWatts
     }
 
     /// Old snapshots lack the new fields. Their false presence flag cannot establish absence reliably.
@@ -101,7 +112,10 @@ public struct BatterySnapshot: Codable, Sendable, Equatable {
             availability: try values.decodeIfPresent(BatteryAvailability.self, forKey: .availability) ?? (oldPresence ? .present : .unknown),
             readErrors: try values.decodeIfPresent([BatteryReadError].self, forKey: .readErrors) ?? [],
             temperatureSource: try values.decodeIfPresent(String.self, forKey: .temperatureSource),
-            reportedHealthPercent: try values.decodeIfPresent(Double.self, forKey: .reportedHealthPercent)
+            reportedHealthPercent: try values.decodeIfPresent(Double.self, forKey: .reportedHealthPercent),
+            timeToEmptyMinutes: try values.decodeIfPresent(Int.self, forKey: .timeToEmptyMinutes),
+            timeToFullChargeMinutes: try values.decodeIfPresent(Int.self, forKey: .timeToFullChargeMinutes),
+            adapterWatts: try values.decodeIfPresent(Int.self, forKey: .adapterWatts)
         )
     }
 }
