@@ -74,27 +74,3 @@ jobs:
           path: .build/previews/*.png
           if-no-files-found: error
           retention-days: 7
-      - name: TEMPORARY - print reduced previews to the log
-        run: |
-          python3 -m venv .build/pv && .build/pv/bin/pip install --quiet pillow
-          app=dist/LocalMonitor.app/Contents/MacOS/LocalMonitor
-          for metric in battery cpu memory iconOnly; do
-            "$app" --smoke-test --language en --menu-bar-metric "$metric" | grep UI_STATUS_ITEM
-          done
-          .build/pv/bin/python - <<'PY'
-          import base64, io
-          from PIL import Image
-          for name, colour in (('app-icon', True), ('battery-sample-en', False), ('devices-sample-zh-Hans', False)):
-              image = Image.open(f'.build/previews/{name}.png')
-              if colour:
-                  image = image.convert('RGB').resize((128, 128)).quantize(48)
-              else:
-                  image = image.convert('L').quantize(8)
-              buffer = io.BytesIO()
-              image.save(buffer, 'PNG', optimize=True)
-              text = base64.b64encode(buffer.getvalue()).decode()
-              print(f'PREVIEW_BEGIN {name} size={image.size} bytes={len(buffer.getvalue())}')
-              for start in range(0, len(text), 6000):
-                  print('PREVIEW_DATA ' + text[start:start + 6000])
-              print(f'PREVIEW_END {name}')
-          PY
