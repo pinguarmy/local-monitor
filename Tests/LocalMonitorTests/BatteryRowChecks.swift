@@ -1,5 +1,6 @@
 import Foundation
 import BatteryCore
+import SystemCore
 
 // Battery tab rules: rows only for a present battery, nil (and non-positive) values hidden,
 // footnotes only for rows that are shown.
@@ -65,6 +66,42 @@ func runBatteryRowChecks(_ check: (Bool, String) -> Void) {
         check(!L10n.batteryUnknownTitle.isEmpty && !L10n.batteryUnknownMessage.isEmpty, "unknown state text (\(tag))")
         check(L10n.batteryAbsentMessage != L10n.batteryUnknownMessage, "absent and unknown explain differently (\(tag))")
     }
+
+    // Condition: known IOPowerSources strings are translated, anything else passes through.
+    let knownConditions: [(String, String)] = [("Good", "良好"), ("Fair", "一般"), ("Poor", "较差"),
+                                               ("Check Battery", "检查电池"), ("Permanent Failure", "永久故障")]
+    for (raw, chinese) in knownConditions {
+        L10n.language = .english
+        check(L10n.batteryConditionValue(raw) == raw, "en condition \(raw) shown as is")
+        L10n.language = .simplifiedChinese
+        check(L10n.batteryConditionValue(raw) == chinese, "zh condition \(raw) translated")
+    }
+    for language in AppLanguage.allCases {
+        L10n.language = language
+        for raw in ["Normal", "Service Recommended", "good", ""] {
+            check(L10n.batteryConditionValue(raw) == raw, "unknown condition '\(raw)' passes through (\(language.rawValue))")
+        }
+    }
+    L10n.language = .simplifiedChinese
+    let poor = BatterySnapshot(isPresent: true, condition: "Poor")
+    check(VisibleMetrics.batteryHealthRows(poor).first == MetricItem(title: "系统健康状态", value: "较差"), "zh condition row")
+    check(VisibleMetrics.batteryHealthRows(discharging).first == MetricItem(title: "系统健康状态", value: "Normal"),
+          "zh unknown condition row unchanged")
+    L10n.language = .english
+    check(VisibleMetrics.batteryHealthRows(poor).first == MetricItem(title: "Condition", value: "Poor"), "en condition row")
+
+    // The preview fixture populates every Battery tab group, both footnotes included.
+    let fixture = PreviewFixtures.battery
+    check(fixture.availability == .present && fixture.isCharging == false, "fixture battery is present and discharging")
+    check(VisibleMetrics.batteryChargeRows(fixture).map { $0.title } == [L10n.timeRemaining], "fixture time remaining")
+    check(VisibleMetrics.batteryHealthRows(fixture).count >= 5, "fixture health rows")
+    check(VisibleMetrics.batteryElectricalRows(fixture).count == 4, "fixture electrical rows")
+    check(VisibleMetrics.batteryFootnotes(fixture).count == 2, "fixture shows both footnotes")
+    let fixtureSystem = PreviewFixtures.system
+    check(VisibleMetrics.cpuRows(fixtureSystem.cpu).first?.title == L10n.cpuUsage, "fixture system has CPU usage")
+    check(VisibleMetrics.networkRows(fixtureSystem.network).count == 3, "fixture system has network rates")
+    check(!VisibleMetrics.memoryRows(fixtureSystem.memory).isEmpty && !VisibleMetrics.diskRows(fixtureSystem.disk).isEmpty
+            && !VisibleMetrics.gpuRows(fixtureSystem.gpu).isEmpty, "fixture system fills every group")
 
     L10n.language = .english
     check(L10n.duration(minutes: 85) == "1 h 25 min", "en duration")

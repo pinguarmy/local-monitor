@@ -84,7 +84,8 @@ public final class SystemReader {
                               uptimeSeconds: uptime, limitations: limitations)
     }
 
-    private static func readCPUTicks(host: host_t) -> CPUTicks? {
+    /// Internal so `SystemLoadReader` shares the native read instead of duplicating it.
+    static func readCPUTicks(host: host_t) -> CPUTicks? {
         var info = host_cpu_load_info_data_t()
         var count = mach_msg_type_number_t(MemoryLayout<host_cpu_load_info_data_t>.size / MemoryLayout<integer_t>.size)
         let result = withUnsafeMutablePointer(to: &info) {
@@ -94,7 +95,8 @@ public final class SystemReader {
         return CPUTicks(user: info.cpu_ticks.0, system: info.cpu_ticks.1, idle: info.cpu_ticks.2, nice: info.cpu_ticks.3)
     }
 
-    private static func readMemory(host: host_t) -> MemoryStats? {
+    /// Internal so `SystemLoadReader` shares the native read instead of duplicating it.
+    static func readMemory(host: host_t) -> MemoryStats? {
         var info = vm_statistics64_data_t()
         var count = mach_msg_type_number_t(MemoryLayout<vm_statistics64_data_t>.size / MemoryLayout<integer_t>.size)
         let result = withUnsafeMutablePointer(to: &info) {
@@ -188,7 +190,7 @@ public final class SystemReader {
         return serviceCount == 1 && values.count == 1 ? values[0] : nil
     }
 
-    private static func sysctlInt32(_ name: String) -> Int32? {
+    static func sysctlInt32(_ name: String) -> Int32? {
         var value: Int32 = 0
         var size = MemoryLayout<Int32>.size
         guard sysctlbyname(name, &value, &size, nil, 0) == 0, size == MemoryLayout<Int32>.size else { return nil }

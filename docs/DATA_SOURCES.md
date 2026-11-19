@@ -8,7 +8,7 @@ The capacity ratio is full-charge capacity divided by design capacity in the sam
 
 ## System
 
-CPU usage uses Mach tick differences; load averages are not percentages. When sampling starts, one extra sample is taken about a second after the first so that the first difference is available early. GPU utilization uses known driver-provided percentage keys. Multiple accelerators that cannot be associated with one GPU are not combined.
+CPU usage uses Mach tick differences; load averages are not percentages. When sampling starts, one extra sample is taken about a second after the first so that the first difference is available early. The menu bar's CPU and memory modes use the same two Mach reads and nothing else: no GPU, disk or network access. GPU utilization uses known driver-provided percentage keys. Multiple accelerators that cannot be associated with one GPU are not combined.
 
 Used memory estimates anonymous pages minus purgeable pages, plus wired and compressor pages. Available memory is total minus estimated usage, not an allocation guarantee. Pressure is read separately from the kernel. Disk figures come from root-volume statfs data; APFS volumes may share space. Used space is total capacity minus the space available to unprivileged processes, so it can differ from Finder, which also counts purgeable space as available.
 
@@ -18,7 +18,7 @@ Network rates use differences in 64-bit counters for active physical enN interfa
 
 The system's non-public MobileDevice interface reuses an existing trusted session. Only wired connections are read: a device that reports a Wi-Fi interface type is skipped, which also prevents one device from appearing twice. A scan ends once the list of connected devices has been stable for a moment, or at its fixed limit when no device is found. Basic values are queried by individual key. Detailed battery readings use a fixed `IORegistry / EntryName=AppleSmartBatteryPack` request and allowlisted fields from `Diagnostics.IORegistry.BatteryData`.
 
-Temperature is divided by 100 for Celsius. VirtualTemperature is not substituted for physical temperature. Full-charge capacity prefers AppleRawMaxCapacity, then the same source's NominalChargeCapacity; DesignCapacity is design capacity in mAh. Top-level percentage values never populate mAh fields. Missing values are omitted.
+Product names for known iPhone model codes come from a fixed table in the app; unknown codes are shown as reported. Temperature is divided by 100 for Celsius. VirtualTemperature is not substituted for physical temperature. Full-charge capacity prefers AppleRawMaxCapacity, then the same source's NominalChargeCapacity; DesignCapacity is design capacity in mAh. Top-level percentage values never populate mAh fields. Missing values are omitted.
 
 ## References
 

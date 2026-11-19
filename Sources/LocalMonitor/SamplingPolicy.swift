@@ -1,6 +1,9 @@
 import Foundation
+import DeviceCore
 
-/// On-demand sampling rules: no fixed periodic polling for battery or devices.
+/// Every periodic read in the app, as pure rules. Panel timers run only while the panel is
+/// visible on their tab and the Mac is awake; the menu bar timer runs only for a metric that
+/// needs it. Nil means no timer.
 enum SamplingPolicy {
     /// Real-time system metrics are sampled only while the panel is visible,
     /// the system page is shown, and the machine is not sleeping.
@@ -19,11 +22,37 @@ enum SamplingPolicy {
         return delay < interval ? delay : nil
     }
 
-    /// The battery is never polled: only system power events and manual refresh update it.
-    /// Asserted nil; callers must not create a timer from it.
-    static var batteryPollingInterval: TimeInterval? { nil }
+    /// The Mac battery is re-read while the panel is visible on the Battery tab and the Mac is
+    /// awake, so power, current, temperature and time remaining do not go stale: every 5 s,
+    /// 10 s in Low Power Mode. A Mac without a battery has nothing to refresh. Power events,
+    /// wake, panel open and manual refresh still update it in addition to this timer.
+    static func batteryInterval(panelVisible: Bool, page: MonitorPage, isSleeping: Bool, lowPower: Bool,
+                                hasBattery: Bool) -> TimeInterval? {
+        guard panelVisible, page == .battery, !isSleeping, hasBattery else { return nil }
+        return lowPower ? 10 : 5
+    }
 
-    /// Devices are never polled: read only when the Devices tab opens or on manual refresh.
-    /// Asserted nil; callers must not create a timer from it.
-    static var devicePollingInterval: TimeInterval? { nil }
+    /// Connected devices are re-read silently every 10 s while the panel is visible on the
+    /// Devices tab and the Mac is awake, so plugging or unplugging shows up without Refresh.
+    /// Never in Low Power Mode, and never after a failed notification cleanup, which needs an
+    /// app restart. Opening the tab and manual refresh still read in addition to this timer.
+    static func deviceInterval(panelVisible: Bool, page: MonitorPage, isSleeping: Bool, lowPower: Bool,
+                               lastIssue: DeviceReadIssue?) -> TimeInterval? {
+        guard panelVisible, page == .devices, !isSleeping, !lowPower,
+              lastIssue != .notificationCleanupFailed else { return nil }
+        return 10
+    }
+
+    /// Background sampling for the menu bar title: only for the CPU and memory metrics, every
+    /// 3 s (6 s in Low Power Mode), paused while the Mac sleeps. Battery and icon-only modes run
+    /// no background sampling at all.
+    static func menuBarInterval(metric: MenuBarMetric, isSleeping: Bool, lowPower: Bool) -> TimeInterval? {
+        guard metric.needsLoadSampling, !isSleeping else { return nil }
+        return lowPower ? 6 : 3
+    }
+
+    /// Timer tolerance: lets macOS coalesce wake-ups; the rules above are not exact deadlines.
+    static func tolerance(interval: TimeInterval) -> TimeInterval {
+        interval * 0.2
+    }
 }

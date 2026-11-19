@@ -143,5 +143,31 @@ final class SystemCoreTests: XCTestCase {
         requireSendable(snapshot)
     }
 
+    func testLoadSampleNeedsTwoCPUReadsAndCarriesMemory() {
+        let memory = SystemMetrics.memory(totalBytes: 1_000_000, pageSize: 1000, internalPages: 200, purgeablePages: 20, wiredPages: 100, compressorPages: 50, swapUsedBytes: nil, pressure: .normal)
+        let first = CPUTicks(user: 10, system: 20, idle: 30, nice: 40)
+        let second = CPUTicks(user: 20, system: 30, idle: 100, nice: 50)
+        let initial = SystemLoadReader.sample(timestamp: Date(timeIntervalSince1970: 0), ticks: first, previous: nil, memory: memory)
+        XCTAssertNil(initial.cpuUsagePercent)
+        XCTAssertEqual(initial.memoryUsedBytes, 330_000)
+        XCTAssertEqual(initial.memoryTotalBytes, 1_000_000)
+        XCTAssertEqual(initial.memoryUsedPercent!, 33, accuracy: 0.0001)
+        let later = SystemLoadReader.sample(timestamp: Date(timeIntervalSince1970: 3), ticks: second, previous: first, memory: memory)
+        XCTAssertEqual(later.cpuUsagePercent!, 30, accuracy: 0.0001)
+        let failedTicks = SystemLoadReader.sample(timestamp: Date(timeIntervalSince1970: 6), ticks: nil, previous: second, memory: nil)
+        XCTAssertNil(failedTicks.cpuUsagePercent)
+        XCTAssertNil(failedTicks.memoryUsedBytes)
+        XCTAssertNil(failedTicks.memoryUsedPercent)
+        requireSendable(later)
+    }
+
+    func testLoadSampleMemoryPercentNeedsPositiveTotal() {
+        XCTAssertNil(SystemLoadSample(timestamp: Date(), cpuUsagePercent: nil, memoryUsedBytes: 0, memoryTotalBytes: 0).memoryUsedPercent)
+        XCTAssertNil(SystemLoadSample(timestamp: Date(), cpuUsagePercent: nil, memoryUsedBytes: 5, memoryTotalBytes: nil).memoryUsedPercent)
+        XCTAssertEqual(SystemLoadSample(timestamp: Date(), cpuUsagePercent: nil, memoryUsedBytes: 0, memoryTotalBytes: 8).memoryUsedPercent!, 0, accuracy: 0)
+        XCTAssertEqual(SystemLoadSample(timestamp: Date(), cpuUsagePercent: nil, memoryUsedBytes: 8, memoryTotalBytes: 8).memoryUsedPercent!, 100, accuracy: 0)
+        XCTAssertEqual(SystemLoadSample(timestamp: Date(), cpuUsagePercent: nil, memoryUsedBytes: 9, memoryTotalBytes: 8).memoryUsedPercent!, 100, accuracy: 0)
+    }
+
     private func requireSendable<T: Sendable>(_ value: T) {}
 }

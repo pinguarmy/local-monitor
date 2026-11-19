@@ -2,8 +2,9 @@ import Foundation
 import Combine
 import BatteryCore
 
-/// Mac battery state. Never polled: AppDelegate refreshes it on power events, wake, panel open
-/// and manual refresh.
+/// Mac battery state. AppDelegate refreshes it on power events, wake, panel open and manual
+/// refresh; MonitorModel also refreshes it on a timer while the Battery tab is visible
+/// (`SamplingPolicy.batteryInterval`). Reads are synchronous on the main actor.
 @MainActor
 final class BatteryModel: ObservableObject {
     @Published private(set) var snapshot: BatterySnapshot

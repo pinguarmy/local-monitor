@@ -45,7 +45,9 @@ struct StandaloneRunner {
             ("network loopback and overlay exclusion", tests.testNetworkFilterExcludesLoopbackAndOverlayDuplicates),
             ("GPU percentage whitelist", tests.testGPUAcceptsOnlyWhitelistedFinitePercentages),
             ("saturating arithmetic", tests.testSaturatingArithmeticNeverTraps),
-            ("snapshot Codable, unknowns and privacy", tests.testSnapshotRoundTripKeepsUnknownsAndNoIdentifiers)
+            ("snapshot Codable, unknowns and privacy", tests.testSnapshotRoundTripKeepsUnknownsAndNoIdentifiers),
+            ("menu bar load sample", tests.testLoadSampleNeedsTwoCPUReadsAndCarriesMemory),
+            ("menu bar memory percent", tests.testLoadSampleMemoryPercentNeedsPositiveTotal)
         ]
         for (name, test) in cases {
             let before = failureCount
@@ -59,6 +61,9 @@ struct StandaloneRunner {
 
     private static func verifyLive() throws {
         let reader = SystemReader()
+        let loadReader = SystemLoadReader()
+        let firstLoad = loadReader.read()
+        XCTAssertNil(firstLoad.cpuUsagePercent)
         let start = ProcessInfo.processInfo.systemUptime
         let first = reader.read()
         let firstCost = ProcessInfo.processInfo.systemUptime - start
@@ -70,6 +75,9 @@ struct StandaloneRunner {
         let secondStart = ProcessInfo.processInfo.systemUptime
         let second = reader.read()
         let secondCost = ProcessInfo.processInfo.systemUptime - secondStart
+        let secondLoad = loadReader.read()
+        if let usage = secondLoad.cpuUsagePercent { XCTAssertTrue((0...100).contains(usage)) }
+        if let percent = secondLoad.memoryUsedPercent { XCTAssertTrue((0...100).contains(percent)) }
         XCTAssertTrue((second.cpu?.logicalCoreCount ?? 0) > 0)
         XCTAssertTrue(second.uptimeSeconds > first.uptimeSeconds)
         if let utilization = second.cpu?.usagePercent { XCTAssertTrue((0...100).contains(utilization)) }

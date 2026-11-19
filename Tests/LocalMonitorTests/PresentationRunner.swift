@@ -1,6 +1,7 @@
 import Foundation
 import AppKit
 import BatteryCore
+import DeviceCore
 
 /// Standalone UI test runner (compiled with -D BATTERY_UI_TESTS by scripts/test-direct.sh).
 /// Every check block sets `L10n.language` itself; nothing depends on the machine's locale.
@@ -21,6 +22,8 @@ struct PresentationRunner {
         runVisibleMetricChecks(check)
         runBatteryRowChecks(check)
         runDeviceStatusChecks(check)
+        runMenuBarChecks(check)
+        runDeviceNameChecks(check)
         print("UI presentation/model: \(assertions) assertions, \(failures) failures")
         exit(failures == 0 ? 0 : 1)
     }
@@ -112,8 +115,64 @@ func runSamplingPolicyChecks(_ check: (Bool, String) -> Void) {
     check(SamplingPolicy.warmUpDelay(interval: 5) == 1, "warm-up 1 s in Low Power Mode")
     check(SamplingPolicy.warmUpDelay(interval: 1) == nil, "no warm-up when the interval is already short")
     check(SamplingPolicy.warmUpDelay(interval: nil) == nil, "no warm-up without sampling")
-    check(SamplingPolicy.batteryPollingInterval == nil, "battery never polled")
-    check(SamplingPolicy.devicePollingInterval == nil, "devices never polled")
+
+    // Battery tab refresh and Devices tab re-read: only while visible on their own tab and awake.
+    let issues: [DeviceReadIssue?] = [nil, .frameworkUnavailable, .subscriptionFailed, .notificationCleanupFailed,
+                                      .readInProgress, .deviceUnreadable]
+    for page in MonitorPage.allCases {
+        for visible in [false, true] {
+            for sleeping in [false, true] {
+                for lowPower in [false, true] {
+                    let name = "page=\(page.rawValue) visible=\(visible) sleeping=\(sleeping) lowPower=\(lowPower)"
+                    let shown = visible && !sleeping
+                    for hasBattery in [false, true] {
+                        let battery = SamplingPolicy.batteryInterval(panelVisible: visible, page: page, isSleeping: sleeping,
+                                                                     lowPower: lowPower, hasBattery: hasBattery)
+                        let expected: TimeInterval? = (shown && page == .battery && hasBattery) ? (lowPower ? 10 : 5) : nil
+                        check(battery == expected, "batteryInterval \(name) hasBattery=\(hasBattery)")
+                    }
+                    for issue in issues {
+                        let devices = SamplingPolicy.deviceInterval(panelVisible: visible, page: page, isSleeping: sleeping,
+                                                                    lowPower: lowPower, lastIssue: issue)
+                        let expected: TimeInterval? = (shown && page == .devices && !lowPower
+                                                       && issue != .notificationCleanupFailed) ? 10 : nil
+                        check(devices == expected, "deviceInterval \(name) issue=\(issue?.rawValue ?? "nil")")
+                    }
+                }
+            }
+        }
+    }
+    check(SamplingPolicy.batteryInterval(panelVisible: true, page: .battery, isSleeping: false, lowPower: false, hasBattery: true) == 5,
+          "battery refreshes every 5 s while shown")
+    check(SamplingPolicy.batteryInterval(panelVisible: true, page: .battery, isSleeping: false, lowPower: true, hasBattery: true) == 10,
+          "battery refreshes every 10 s in Low Power Mode")
+    check(SamplingPolicy.batteryInterval(panelVisible: false, page: .battery, isSleeping: false, lowPower: false, hasBattery: true) == nil,
+          "battery timer stops when the panel closes")
+    check(SamplingPolicy.deviceInterval(panelVisible: true, page: .devices, isSleeping: false, lowPower: false, lastIssue: nil) == 10,
+          "devices re-read every 10 s while shown")
+    check(SamplingPolicy.deviceInterval(panelVisible: true, page: .devices, isSleeping: false, lowPower: true, lastIssue: nil) == nil,
+          "devices not re-read in Low Power Mode")
+    check(SamplingPolicy.deviceInterval(panelVisible: true, page: .devices, isSleeping: false, lowPower: false,
+                                        lastIssue: .notificationCleanupFailed) == nil,
+          "devices not re-read after a cleanup failure")
+
+    // Menu bar: only CPU and memory sample, every 3 s (6 s in Low Power Mode), never while asleep.
+    for metric in MenuBarMetric.allCases {
+        for sleeping in [false, true] {
+            for lowPower in [false, true] {
+                let interval = SamplingPolicy.menuBarInterval(metric: metric, isSleeping: sleeping, lowPower: lowPower)
+                let expected: TimeInterval? = (metric.needsLoadSampling && !sleeping) ? (lowPower ? 6 : 3) : nil
+                check(interval == expected, "menuBarInterval metric=\(metric.rawValue) sleeping=\(sleeping) lowPower=\(lowPower)")
+                if let interval { check(SamplingPolicy.warmUpDelay(interval: interval) == 1, "menu bar warm-up \(metric.rawValue)") }
+            }
+        }
+    }
+    check(SamplingPolicy.menuBarInterval(metric: .battery, isSleeping: false, lowPower: false) == nil, "battery mode never samples")
+    check(SamplingPolicy.menuBarInterval(metric: .iconOnly, isSleeping: false, lowPower: false) == nil, "icon only never samples")
+    for interval in [2.0, 3, 5, 6, 10] {
+        let tolerance = SamplingPolicy.tolerance(interval: interval)
+        check(tolerance > 0 && tolerance < interval / 2, "timer tolerance is a small share of \(interval) s")
+    }
 }
 
 @MainActor
@@ -139,4 +198,36 @@ func runModelChecks(_ check: (Bool, String) -> Void) {
     let monitor = MonitorModel()
     check(monitor.page == .system, "app opens on the System tab")
     check(!monitor.isSampling && monitor.system == nil, "monitor idle until the panel opens")
+    check(!monitor.isBatteryTimerRunning && !monitor.isDeviceTimerRunning, "no panel timers until the panel opens")
+    check(!monitor.showsDeviceProgress && !monitor.isReadingDevices, "no device read until the Devices tab opens")
+
+    // Battery timer: only on the Battery tab of a visible panel, and only with a battery to read.
+    let batteryMonitor = MonitorModel()
+    let present = BatteryModel(read: { sample(50) })
+    batteryMonitor.battery = present
+    batteryMonitor.page = .battery
+    batteryMonitor.updateVisibility(true)
+    check(batteryMonitor.isBatteryTimerRunning && !batteryMonitor.isSampling && !batteryMonitor.isDeviceTimerRunning,
+          "battery tab runs only the battery timer")
+    batteryMonitor.updateVisibility(false, sleeping: true)
+    check(!batteryMonitor.isBatteryTimerRunning, "battery timer stops while asleep")
+    batteryMonitor.updateVisibility(true)
+    batteryMonitor.page = .system
+    batteryMonitor.pageChanged()
+    check(!batteryMonitor.isBatteryTimerRunning && batteryMonitor.isSampling, "leaving the Battery tab stops its timer")
+    batteryMonitor.stop()
+    check(!batteryMonitor.isBatteryTimerRunning && !batteryMonitor.isSampling, "closing the panel stops every timer")
+    let desktopMonitor = MonitorModel()
+    let desktopBattery = BatteryModel(read: { BatterySnapshot(isPresent: false, availability: .absent) })
+    desktopMonitor.battery = desktopBattery
+    desktopMonitor.page = .battery
+    desktopMonitor.updateVisibility(true)
+    check(!desktopMonitor.isBatteryTimerRunning, "no battery timer without a battery")
+    desktopMonitor.stop()
+    withExtendedLifetime(present) {}
+    withExtendedLifetime(desktopBattery) {}
+    // Preview models have no battery model attached and never read.
+    let previewMonitor = MonitorModel(initialDevices: nil, initialSystem: nil)
+    previewMonitor.page = .battery
+    check(!previewMonitor.isBatteryTimerRunning, "preview monitor has no battery timer")
 }

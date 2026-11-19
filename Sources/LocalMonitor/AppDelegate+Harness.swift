@@ -4,12 +4,14 @@ import Darwin
 import DeviceCore
 
 /// Launch arguments of the smoke / diagnostics harness. CI and the owner's scripts parse the
-/// stdout markers printed below (UI_SMOKE_READY, UI_SMOKE_RESULT success=, UI_PREVIEW_WRITTEN,
-/// SAMPLING_TEST, DEVICE_LAYOUT), so their formats must not change.
+/// stdout markers printed below (UI_SMOKE_READY, UI_STATUS_ITEM, UI_SMOKE_RESULT success=,
+/// UI_PREVIEW_WRITTEN, SAMPLING_TEST, DEVICE_LAYOUT), so their formats must not change.
 ///
 /// --smoke-test, --interaction-test, --sampling-test, --device-layout-test,
 /// --render-preview <path>, --preview-page system|battery|devices, --language en|zh-Hans
-/// (`--language` is read by `AppLanguage.launchDefault()`).
+/// (`--language` is read by `AppLanguage.launchDefault()`),
+/// --preview-fixture (render built-in representative data instead of live data),
+/// --menu-bar-metric battery|cpu|memory|iconOnly (this run only, never persisted).
 struct HarnessOptions {
     let arguments: [String]
 
@@ -23,6 +25,10 @@ struct HarnessOptions {
     var previewPath: String? { value(after: "--render-preview") }
     /// Which tab `--render-preview` renders; nil keeps each mode's default.
     var previewPage: MonitorPage? { value(after: "--preview-page").flatMap { MonitorPage(rawValue: $0) } }
+    /// `--render-preview` uses `PreviewFixtures` instead of live battery, device and system data.
+    var previewFixture: Bool { arguments.contains("--preview-fixture") }
+    /// Overrides the stored menu bar choice for this run; unknown values are ignored.
+    var menuBarMetric: MenuBarMetric? { value(after: "--menu-bar-metric").flatMap { MenuBarMetric(rawValue: $0) } }
 
     func value(after flag: String) -> String? {
         guard let index = arguments.firstIndex(of: flag), arguments.indices.contains(index + 1) else { return nil }
@@ -39,7 +45,8 @@ extension AppDelegate {
                 print("DEVICE_LAYOUT status=\(devices.status.rawValue) count=\(devices.devices.count)")
                 var success = devices.status == .available && !devices.devices.isEmpty
                 if let path = options.previewPath {
-                    success = renderPreview(to: path, page: options.previewPage ?? .devices, devices: devices) && success
+                    success = renderPreview(to: path, page: options.previewPage ?? .devices, devices: devices,
+                                            fixture: options.previewFixture) && success
                 }
                 finishSmoke(success: success)
             }
@@ -58,9 +65,11 @@ extension AppDelegate {
         print("UI_SMOKE_READY statusItem=\(item?.button != nil) percentage=\(model.percentage) state=\(model.status) powerEvents=\(powerSource != nil) temperature=\(String(describing: model.snapshot.temperatureCelsius))")
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [self] in
             var success = item?.button != nil && powerSource != nil
+            let statusTitle = item?.button?.title ?? ""
+            print("UI_STATUS_ITEM metric=\(menuBar.metric.rawValue) title=\"\(statusTitle)\" glyph=\(statusGlyphName ?? "none")")
             if options.renderPreviewRequested {
                 if let path = options.previewPath {
-                    success = renderPreview(to: path, page: options.previewPage) && success
+                    success = renderPreview(to: path, page: options.previewPage, fixture: options.previewFixture) && success
                 } else {
                     print("UI_PREVIEW_FAILED missing output path")
                     success = false
@@ -91,14 +100,16 @@ extension AppDelegate {
             let visibleReads = monitor.systemReadCount
             var success = visibleReads >= 2 && monitor.system != nil
             if let path = options.previewPath {
-                success = renderPreview(to: path, page: options.previewPage) && success
+                success = renderPreview(to: path, page: options.previewPage, fixture: options.previewFixture) && success
             }
             popover.performClose(nil)
             monitor.stop()
             let checks = success
             DispatchQueue.main.asyncAfter(deadline: .now() + 3.2) { [self] in
                 let stopped = monitor.systemReadCount == visibleReads && !monitor.isSampling
-                print("SAMPLING_TEST visibleSystemReads=\(visibleReads) hiddenSystemReads=\(monitor.systemReadCount - visibleReads) batteryReadsDuringTest=\(model.readCount - initialBatteryReads) batteryTimer=false deviceTimer=false")
+                    && !monitor.isBatteryTimerRunning && !monitor.isDeviceTimerRunning
+                // Battery and device timers exist only on their own tabs; after the panel closes both must be off.
+                print("SAMPLING_TEST visibleSystemReads=\(visibleReads) hiddenSystemReads=\(monitor.systemReadCount - visibleReads) batteryReadsDuringTest=\(model.readCount - initialBatteryReads) batteryTimer=\(monitor.isBatteryTimerRunning) deviceTimer=\(monitor.isDeviceTimerRunning)")
                 finishSmoke(success: checks && stopped)
             }
         }
@@ -112,18 +123,28 @@ extension AppDelegate {
     }
 
     /// Renders this app's own SwiftUI view only. It never captures the user's desktop.
-    /// With no page and no devices the live monitor is rendered; otherwise a separate,
-    /// non-sampling model seeded with the current data shows the requested tab, so the
-    /// live model's sampling and device reads are never touched.
-    private func renderPreview(to path: String, page: MonitorPage?, devices: DeviceSnapshot? = nil) -> Bool {
+    /// With no page, no devices and no fixture the live monitor is rendered; otherwise a
+    /// separate, non-sampling model seeded with the current data (or with `PreviewFixtures`)
+    /// shows the requested tab, so the live model's sampling and device reads are never touched.
+    private func renderPreview(to path: String, page: MonitorPage?, devices: DeviceSnapshot? = nil,
+                               fixture: Bool = false) -> Bool {
         let previewMonitor: MonitorModel
-        if page != nil || devices != nil {
+        let previewBattery: BatteryModel
+        if fixture {
+            previewBattery = BatteryModel(read: { PreviewFixtures.battery })
+            previewMonitor = MonitorModel(initialDevices: devices ?? PreviewFixtures.devices,
+                                          initialSystem: PreviewFixtures.system)
+            previewMonitor.page = page ?? .system
+        } else if page != nil || devices != nil {
+            previewBattery = model
             previewMonitor = MonitorModel(initialDevices: devices ?? monitor.devices, initialSystem: monitor.system)
             previewMonitor.page = page ?? .devices
         } else {
+            previewBattery = model
             previewMonitor = monitor
         }
-        let view = NSHostingView(rootView: MonitorPanel(battery: model, monitor: previewMonitor, launchAtLogin: launchAtLogin) {}
+        let view = NSHostingView(rootView: MonitorPanel(battery: previewBattery, monitor: previewMonitor,
+                                                        launchAtLogin: launchAtLogin, menuBar: menuBar) {}
             .environment(\.colorScheme, .light)
             .background(Color(nsColor: .windowBackgroundColor)))
         view.appearance = NSAppearance(named: .aqua)

@@ -8,8 +8,8 @@ struct DevicesSection: View {
     let snapshot: DeviceSnapshot?
     let isReading: Bool
 
-    /// "Reading…" in the header only while refreshing an existing snapshot; a first read
-    /// shows the spinner in the body instead.
+    /// "Reading…" in the header only while a shown refresh of an existing snapshot runs (manual
+    /// Refresh); a first read shows the spinner in the body instead. Timer reads are silent.
     private var headerCaption: String? {
         guard let snapshot else { return nil }
         return isReading ? L10n.reading : L10n.updated(at: snapshot.capturedAt)
@@ -79,19 +79,20 @@ struct StepList: View {
     }
 }
 
-/// One connected device: kind, model and charge in the header, then only the values read.
+/// One connected device: name (or kind), model identifier and charge in the header, then only the values read.
 struct DeviceCard: View {
     let device: ConnectedDeviceSnapshot
 
     private var rows: [MetricItem] { VisibleMetrics.deviceRows(device) }
+    private var header: DeviceCardTitle { VisibleMetrics.deviceCardTitle(device) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline) {
-                Text(L10n.deviceKind(device.kind))
+                Text(header.title)
                     .font(.system(size: 12, weight: .semibold))
-                if let productType = device.productType, !productType.isEmpty {
-                    Text(productType)
+                if let detail = header.detail {
+                    Text(detail)
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                 }

@@ -75,7 +75,17 @@ enum L10n {
         tr(en: "Every \(seconds) s while open · stops on close", zh: "查看时每\(seconds)秒 · 关闭即停")
     }
     static var systemSamplingPaused: String { tr(en: "Live sampling paused", zh: "实时采样已暂停") }
-    static var batteryPolicyCaption: String { tr(en: "No polling · power events only", zh: "电池无定时轮询") }
+    /// Footer caption while the Battery tab refreshes on a timer.
+    static func batteryRefreshEvery(seconds: Int) -> String {
+        tr(en: "Updates every \(seconds) s while shown", zh: "查看时每\(seconds)秒更新")
+    }
+    /// Footer caption on the Battery tab when there is nothing to refresh on a timer.
+    static var batteryEventsOnlyCaption: String { tr(en: "Updates on power events", zh: "电源事件时更新") }
+    /// Footer caption while the Devices tab re-reads on a timer.
+    static func devicesCheckEvery(seconds: Int) -> String {
+        tr(en: "Checks every \(seconds) s while shown", zh: "查看时每\(seconds)秒检查")
+    }
+    /// Footer caption on the Devices tab without a timer (Low Power Mode, or a reader that needs a restart).
     static var devicesPolicyCaption: String { tr(en: "Read on open and Refresh only", zh: "设备仅打开时与手动读取") }
 
     static func updated(at date: Date) -> String {
@@ -93,6 +103,34 @@ enum L10n {
     static func statusItemAccessibilityValue(status: String, percentage: String?) -> String {
         guard let percentage else { return status }
         return tr(en: "\(percentage), \(status)", zh: "\(percentage)，\(status)")
+    }
+    static func statusItemCPUToolTip(percentage: String?) -> String {
+        guard let percentage else { return tr(en: "\(appName) · CPU usage · measuring…", zh: "\(appName) · CPU 使用率 · 测量中…") }
+        return tr(en: "\(appName) · CPU usage \(percentage)", zh: "\(appName) · CPU 使用率 \(percentage)")
+    }
+    static func statusItemCPUAccessibilityValue(percentage: String?) -> String {
+        guard let percentage else { return tr(en: "CPU usage, measuring", zh: "CPU 使用率，测量中") }
+        return tr(en: "CPU usage \(percentage)", zh: "CPU 使用率 \(percentage)")
+    }
+    static func statusItemMemoryToolTip(percentage: String?) -> String {
+        guard let percentage else { return tr(en: "\(appName) · Memory used · measuring…", zh: "\(appName) · 内存已用 · 测量中…") }
+        return tr(en: "\(appName) · Memory used \(percentage)", zh: "\(appName) · 内存已用 \(percentage)")
+    }
+    static func statusItemMemoryAccessibilityValue(percentage: String?) -> String {
+        guard let percentage else { return tr(en: "Memory used, measuring", zh: "内存已用，测量中") }
+        return tr(en: "Memory used \(percentage)", zh: "内存已用 \(percentage)")
+    }
+
+    // MARK: Menu bar choice ("more" menu)
+
+    static var menuBarShows: String { tr(en: "Menu Bar Shows", zh: "菜单栏显示") }
+    static func menuBarMetric(_ metric: MenuBarMetric) -> String {
+        switch metric {
+        case .battery: return tr(en: "Battery", zh: "电池")
+        case .cpu: return tr(en: "CPU Usage", zh: "CPU 使用率")
+        case .memory: return tr(en: "Memory Usage", zh: "内存使用")
+        case .iconOnly: return tr(en: "Icon Only", zh: "仅图标")
+        }
     }
 
     // MARK: System tab
@@ -205,6 +243,18 @@ enum L10n {
     }
 
     static var batteryCondition: String { tr(en: "Condition", zh: "系统健康状态") }
+    /// Known IOPowerSources condition strings are translated; English shows them as macOS
+    /// reports them. Anything else passes through unchanged.
+    static func batteryConditionValue(_ raw: String) -> String {
+        switch raw {
+        case "Good": return tr(en: "Good", zh: "良好")
+        case "Fair": return tr(en: "Fair", zh: "一般")
+        case "Poor": return tr(en: "Poor", zh: "较差")
+        case "Check Battery": return tr(en: "Check Battery", zh: "检查电池")
+        case "Permanent Failure": return tr(en: "Permanent Failure", zh: "永久故障")
+        default: return raw
+        }
+    }
     static var batteryReportedMaximum: String { tr(en: "Maximum capacity", zh: "系统最大容量") }
     static var batteryCapacityRatio: String { tr(en: "Capacity ratio · estimate", zh: "容量比 · 估算健康") }
     static var batteryFullChargeCapacity: String { tr(en: "Full-charge capacity", zh: "当前最大容量") }
@@ -226,8 +276,8 @@ enum L10n {
 
     static var reading: String { tr(en: "Reading…", zh: "读取中…") }
     static var devicesNotRead: String {
-        tr(en: "Not read yet. Devices are read when you open this tab or click Refresh, never in the background.",
-           zh: "尚未读取。进入设备页或点击刷新时读取，不在后台循环。")
+        tr(en: "Not read yet. Devices are read only while this tab is shown or when you click Refresh.",
+           zh: "尚未读取。仅在查看设备页时或点击刷新时读取。")
     }
     static var deviceNote: String {
         tr(en: "Device information is read-only. Nothing is paired automatically and no personal content is read. Device numbers only label this list.",

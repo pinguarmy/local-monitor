@@ -38,7 +38,8 @@ func runLocalizationChecks(_ check: (Bool, String) -> Void) {
         ("pageSystem", { MonitorPage.system.label }), ("pageBattery", { MonitorPage.battery.label }),
         ("pageDevices", { MonitorPage.devices.label }),
         ("samplingEvery", { L10n.systemSamplingEvery(seconds: 2) }), ("samplingPaused", { L10n.systemSamplingPaused }),
-        ("batteryPolicy", { L10n.batteryPolicyCaption }), ("devicesPolicy", { L10n.devicesPolicyCaption }),
+        ("batteryRefreshEvery", { L10n.batteryRefreshEvery(seconds: 5) }), ("batteryEventsOnly", { L10n.batteryEventsOnlyCaption }),
+        ("devicesCheckEvery", { L10n.devicesCheckEvery(seconds: 10) }), ("devicesPolicy", { L10n.devicesPolicyCaption }),
         ("chargingIndicator", { L10n.chargingIndicator }),
         ("sampling", { L10n.sampling }), ("systemNotSampled", { L10n.systemNotSampled }),
         ("groupMemory", { L10n.groupMemory }), ("groupDisk", { L10n.groupDisk }), ("groupNetwork", { L10n.groupNetwork }),
@@ -87,6 +88,21 @@ func runLocalizationChecks(_ check: (Bool, String) -> Void) {
         ("thermalCritical", { L10n.thermalLevel(.critical) }), ("chargingCharging", { L10n.chargingState(.charging) }),
         ("chargingFull", { L10n.chargingState(.full) }), ("chargingNot", { L10n.chargingState(.notCharging) }),
         ("uptimeValue", { L10n.uptimeValue(days: 1, hours: 2, minutes: 3) }),
+        ("menuBarShows", { L10n.menuBarShows }), ("menuBarBattery", { L10n.menuBarMetric(.battery) }),
+        ("menuBarCPU", { L10n.menuBarMetric(.cpu) }), ("menuBarMemory", { L10n.menuBarMetric(.memory) }),
+        ("menuBarIconOnly", { L10n.menuBarMetric(.iconOnly) }),
+        ("cpuToolTip", { L10n.statusItemCPUToolTip(percentage: "23%") }),
+        ("cpuToolTipPending", { L10n.statusItemCPUToolTip(percentage: nil) }),
+        ("cpuA11y", { L10n.statusItemCPUAccessibilityValue(percentage: "23%") }),
+        ("cpuA11yPending", { L10n.statusItemCPUAccessibilityValue(percentage: nil) }),
+        ("memoryToolTip", { L10n.statusItemMemoryToolTip(percentage: "60%") }),
+        ("memoryToolTipPending", { L10n.statusItemMemoryToolTip(percentage: nil) }),
+        ("memoryA11y", { L10n.statusItemMemoryAccessibilityValue(percentage: "60%") }),
+        ("memoryA11yPending", { L10n.statusItemMemoryAccessibilityValue(percentage: nil) }),
+        ("conditionGood", { L10n.batteryConditionValue("Good") }), ("conditionFair", { L10n.batteryConditionValue("Fair") }),
+        ("conditionPoor", { L10n.batteryConditionValue("Poor") }),
+        ("conditionCheck", { L10n.batteryConditionValue("Check Battery") }),
+        ("conditionFailure", { L10n.batteryConditionValue("Permanent Failure") }),
     ]
     let translated = translated1 + translated2 + translated3 + translated4
     for (name, text) in translated {
@@ -122,9 +138,18 @@ func runLocalizationChecks(_ check: (Bool, String) -> Void) {
     check(L10n.systemSamplingEvery(seconds: 2) == "Every 2 s while open · stops on close", "en sampling caption")
     check(L10n.uptimeValue(days: 1, hours: 3, minutes: 9) == "1 d 3 h", "en uptime with days")
     check(L10n.version("0.3.4") == "Version 0.3.4", "en version item")
+    check(L10n.batteryRefreshEvery(seconds: 5) == "Updates every 5 s while shown", "en battery caption")
+    check(L10n.devicesCheckEvery(seconds: 10) == "Checks every 10 s while shown", "en devices caption")
+    check(!L10n.devicesNotRead.lowercased().contains("never"), "en devices note no longer promises no re-reads")
+    for caption in [L10n.batteryRefreshEvery(seconds: 5), L10n.batteryEventsOnlyCaption, L10n.devicesCheckEvery(seconds: 10)] {
+        check(!caption.lowercased().contains("no polling"), "en caption '\(caption)' reflects timed refresh")
+    }
     L10n.language = .simplifiedChinese
     check(MonitorPage.allCases.map { $0.label } == ["系统", "电池", "设备"], "zh tab labels")
     check(L10n.appName == "本机监控", "zh app name")
     check(L10n.systemSamplingEvery(seconds: 5) == "查看时每5秒 · 关闭即停", "zh sampling caption")
+    check(L10n.batteryRefreshEvery(seconds: 10) == "查看时每10秒更新", "zh battery caption")
+    check(L10n.devicesCheckEvery(seconds: 10) == "查看时每10秒检查", "zh devices caption")
+    check(!L10n.batteryEventsOnlyCaption.contains("无定时轮询"), "zh battery caption reflects timed refresh")
     check(L10n.uptimeValue(days: 1, hours: 3, minutes: 9) == "1 天 3 小时", "zh uptime with days")
 }

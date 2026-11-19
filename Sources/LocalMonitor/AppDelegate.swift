@@ -24,12 +24,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     let model = BatteryModel()
     let monitor = MonitorModel()
     let launchAtLogin = LaunchAtLogin()
+    /// Menu bar choice; `--menu-bar-metric` overrides it for one run without persisting.
+    lazy var menuBar: MenuBarSettings = MenuBarSettings(hasBattery: self.model.snapshot.availability != .absent,
+                                                        override: HarnessOptions().menuBarMetric)
+    let loadSampler = LoadSampler()
     private(set) var item: NSStatusItem?
+    /// SF Symbol name currently shown in the status item, nil when no glyph resolved.
+    private(set) var statusGlyphName: String?
     let popover = NSPopover()
     private var wakeObserver: NSObjectProtocol?
     private var sleepObserver: NSObjectProtocol?
     private var powerModeObserver: NSObjectProtocol?
     private var changeObserver: AnyCancellable?
+    private var metricObserver: AnyCancellable?
+    private var loadObserver: AnyCancellable?
     private(set) var powerSource: CFRunLoopSource?
     private var pendingPowerRefresh: DispatchWorkItem?
 
@@ -45,10 +53,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
         popover.behavior = .transient
         popover.delegate = self
+        monitor.battery = model
         popover.contentViewController = NSHostingController(rootView: MonitorPanel(
-            battery: model, monitor: monitor, launchAtLogin: launchAtLogin) { NSApp.terminate(nil) })
+            battery: model, monitor: monitor, launchAtLogin: launchAtLogin, menuBar: menuBar) { NSApp.terminate(nil) })
         popover.contentSize = NSSize(width: 420, height: 650)
         changeObserver = model.$snapshot.sink { [weak self] _ in
+            DispatchQueue.main.async { [weak self] in self?.updateStatus() }
+        }
+        // @Published emits before the new value is stored; read it on the next main-queue turn.
+        metricObserver = menuBar.$metric.sink { [weak self] _ in
+            DispatchQueue.main.async { [weak self] in self?.menuBarMetricChanged() }
+        }
+        loadObserver = loadSampler.$sample.sink { [weak self] _ in
             DispatchQueue.main.async { [weak self] in self?.updateStatus() }
         }
         powerSource = IOPSNotificationCreateRunLoopSource({ context in
@@ -62,17 +78,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                 guard let self else { return }
                 self.model.refresh()
                 self.monitor.updateVisibility(self.popover.isShown)
+                self.loadSampler.setSleeping(false)
             }
         }
         sleepObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor [weak self] in self?.monitor.updateVisibility(false, sleeping: true) }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.monitor.updateVisibility(false, sleeping: true)
+                self.loadSampler.setSleeping(true)
+            }
         }
         powerModeObserver = NotificationCenter.default.addObserver(forName: .NSProcessInfoPowerStateDidChange, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.monitor.updateVisibility(self.popover.isShown)
+                self.loadSampler.powerStateChanged()
             }
         }
+        loadSampler.update(metric: menuBar.metric)
         updateStatus()
         startHarnessIfRequested()
     }
@@ -90,16 +113,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     func popoverDidClose(_ notification: Notification) { monitor.stop() }
 
+    private func menuBarMetricChanged() {
+        loadSampler.update(metric: menuBar.metric)
+        updateStatus()
+    }
+
+    /// All content decisions come from `StatusItemPresentation`; this only applies them.
     private func updateStatus() {
         guard let button = item?.button else { return }
-        let snapshot = model.snapshot
-        let isAbsent = snapshot.availability == .absent
-        let description = isAbsent ? L10n.appName : BatteryPresentation.status(snapshot)
-        let glyph = StatusItemGlyph.firstAvailable(BatteryPresentation.statusItemSymbols(snapshot),
-                                                   accessibilityDescription: description)?.image
-        button.title = BatteryPresentation.statusItemTitle(snapshot)
+        let content = StatusItemPresentation.content(metric: menuBar.metric, battery: model.snapshot, load: loadSampler.sample)
+        let resolved = StatusItemGlyph.firstAvailable(content.symbols, accessibilityDescription: content.accessibilityValue)
+        statusGlyphName = resolved?.name
+        let glyph = resolved?.image
         button.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
-        if !isAbsent, snapshot.isCharging == true, let glyph,
+        if content.showsChargingIndicator, let glyph,
            let bolt = NSImage(systemSymbolName: "bolt.fill", accessibilityDescription: L10n.chargingIndicator) {
             // SF Symbols provides only battery.100.bolt, not per-level bolt variants.
             // Compose the actual battery level with a separate charging indicator.
@@ -113,15 +140,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         } else {
             button.image = glyph
         }
-        if isAbsent {
-            // No battery: a neutral glyph alone. Only if no glyph resolves, fall back to the app name.
-            if glyph == nil { button.title = L10n.appName }
-            button.imagePosition = glyph == nil ? .noImage : .imageOnly
-        } else {
-            button.imagePosition = .imageLeading
+        let layout = StatusItemPresentation.layout(title: content.title, hasGlyph: glyph != nil)
+        button.title = layout.title
+        switch layout.image {
+        case .imageOnly: button.imagePosition = .imageOnly
+        case .imageLeading: button.imagePosition = .imageLeading
+        case .titleOnly: button.imagePosition = .noImage
         }
-        button.toolTip = BatteryPresentation.statusItemToolTip(snapshot)
-        button.setAccessibilityValue(BatteryPresentation.statusItemAccessibilityValue(snapshot))
+        button.toolTip = content.toolTip
+        button.setAccessibilityValue(content.accessibilityValue)
     }
 
     @objc func togglePanel() {
@@ -141,6 +168,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         monitor.stop()
+        loadSampler.stop()
         pendingPowerRefresh?.cancel()
         pendingPowerRefresh = nil
         if let powerSource {

@@ -13,6 +13,13 @@ struct DeviceStatusDisplay: Equatable {
     let steps: [String]
 }
 
+/// A device card's header: the marketing name when the product type is known (raw identifier
+/// as secondary text), otherwise the device kind with the raw identifier, as before.
+struct DeviceCardTitle: Equatable {
+    let title: String
+    let detail: String?
+}
+
 /// Pure visible-metric rules shared by the views and the LocalMonitorTests checks.
 /// Only metrics that were actually read produce rows. Nil values are omitted, never
 /// replaced by "not sampled" / "unavailable" placeholders.
@@ -183,7 +190,7 @@ enum VisibleMetrics {
         guard snapshot.availability == .present else { return [] }
         var rows: [MetricItem] = []
         if let condition = snapshot.condition, !condition.isEmpty {
-            rows.append(MetricItem(title: L10n.batteryCondition, value: condition))
+            rows.append(MetricItem(title: L10n.batteryCondition, value: L10n.batteryConditionValue(condition)))
         }
         if let reported = snapshot.reportedHealthPercent {
             rows.append(MetricItem(title: L10n.batteryReportedMaximum, value: MonitorFormat.roundedPercent(reported)))
@@ -234,6 +241,14 @@ enum VisibleMetrics {
     }
 
     // MARK: Devices tab
+
+    static func deviceCardTitle(_ device: ConnectedDeviceSnapshot) -> DeviceCardTitle {
+        let productType = device.productType.flatMap { $0.isEmpty ? nil : $0 }
+        if let productType, let name = DeviceNames.marketingName(productType: productType) {
+            return DeviceCardTitle(title: name, detail: productType)
+        }
+        return DeviceCardTitle(title: L10n.deviceKind(device.kind), detail: productType)
+    }
 
     /// Only values actually read. Source paths, batteryDetailsStatus and `message` never become rows;
     /// a partial diagnostics failure is not treated as a failed card.
