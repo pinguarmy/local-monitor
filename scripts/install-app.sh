@@ -22,7 +22,7 @@ if target.exists():
             raise SystemExit('Refusing to replace an unrelated app')
 if backup.exists():
     raise SystemExit(f'Review the existing recovery copy first: {backup}')
-stage = pathlib.Path(tempfile.mkdtemp(prefix='.battery-stage-', dir=apps))
+stage = pathlib.Path(tempfile.mkdtemp(prefix='.stage-', dir=apps))
 try:
     new = stage / 'LocalMonitor.app'
     shutil.copytree(source, new)
@@ -41,6 +41,6 @@ except BaseException:
         shutil.copytree(backup, target)
     raise
 finally:
-    assert stage.resolve().parent == apps.resolve() and stage.name.startswith('.battery-stage-')
+    assert stage.resolve().parent == apps.resolve() and stage.name.startswith('.stage-')
     shutil.rmtree(stage)
 PY

@@ -12,9 +12,16 @@ subprocess.run(['python3', str(root / 'scripts/check-release-privacy.py')], chec
 app = root / 'dist/LocalMonitor.app'
 with (app / 'Contents/Info.plist').open('rb') as source:
     version = plistlib.load(source)['CFBundleShortVersionString']
-arch = subprocess.check_output(['lipo', '-archs', str(app / 'Contents/MacOS/LocalMonitor')], text=True).strip()
-if arch not in {'arm64', 'x86_64'}:
-    raise SystemExit('Expected a single known architecture')
+archs = subprocess.check_output(['lipo', '-archs', str(app / 'Contents/MacOS/LocalMonitor')], text=True).split()
+# Exactly one known architecture, or exactly arm64 + x86_64 (universal); nothing else.
+if sorted(archs) == ['arm64', 'x86_64']:
+    arch = 'universal'
+elif len(archs) == 1 and archs[0] in {'arm64', 'x86_64'}:
+    arch = archs[0]
+else:
+    raise SystemExit(f'Expected arm64, x86_64 or a universal arm64 + x86_64 binary, found {archs}')
+if not (app / 'Contents/Resources/AppIcon.icns').is_file():
+    raise SystemExit('Missing Contents/Resources/AppIcon.icns; rebuild with scripts/build-app.sh')
 archive = root / 'dist' / f'LocalMonitor-v{version}-beta-macos-{arch}.zip'
 with zipfile.ZipFile(archive, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=9) as output:
     files = [(p, str(p.relative_to(app.parent))) for p in sorted(app.rglob('*')) if p.is_file()]

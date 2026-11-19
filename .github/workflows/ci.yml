@@ -9,20 +9,43 @@ permissions:
 jobs:
   test:
     runs-on: macos-15
-    timeout-minutes: 20
+    # Four raw swiftc builds (native, x86_64 tests, universal arm64 + x86_64) plus swift test.
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - name: Build and standalone tests
+        timeout-minutes: 10
         run: bash scripts/test-direct.sh
       - name: Swift Package tests
+        timeout-minutes: 10
         run: swift test
-      - name: Build local signed bundle
-        run: bash scripts/build-app.sh
+      - name: Ensure Rosetta 2
+        timeout-minutes: 5
+        run: |
+          if /usr/bin/arch -x86_64 /usr/bin/true 2>/dev/null; then
+            echo "Rosetta 2 is available"
+          else
+            sudo softwareupdate --install-rosetta --agree-to-license
+            /usr/bin/arch -x86_64 /usr/bin/true
+          fi
+      - name: Build and standalone tests (x86_64 under Rosetta 2)
+        timeout-minutes: 10
+        env:
+          LOCAL_MONITOR_ARCH: x86_64
+        run: bash scripts/test-direct.sh
+      - name: Build universal signed bundle
+        timeout-minutes: 10
+        env:
+          LOCAL_MONITOR_ICON_PREVIEW: "1"
+        run: bash scripts/build-app.sh --universal
       - name: Verify public files and application
         run: python3 scripts/check-release-privacy.py
-      - name: Launch the app and open the panel
+      - name: Launch the app and open the panel (arm64)
         timeout-minutes: 2
-        run: dist/LocalMonitor.app/Contents/MacOS/LocalMonitor --smoke-test --interaction-test --language en
+        run: arch -arm64 dist/LocalMonitor.app/Contents/MacOS/LocalMonitor --smoke-test --interaction-test --language en
+      - name: Launch the app and open the panel (x86_64 under Rosetta 2)
+        timeout-minutes: 3
+        run: arch -x86_64 dist/LocalMonitor.app/Contents/MacOS/LocalMonitor --smoke-test --interaction-test --language en
       - name: Sampling lifecycle and panel previews
         timeout-minutes: 3
         run: |

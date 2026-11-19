@@ -9,6 +9,7 @@
 <key>CFBundleLocalizations</key><array><string>en</string><string>zh-Hans</string></array>
 <key>LSHasLocalizedDisplayName</key><true/>
 <key>CFBundleExecutable</key><string>LocalMonitor</string>
+<key>CFBundleIconFile</key><string>AppIcon</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>0.4.0</string>
 <key>CFBundleVersion</key><string>8</string>
