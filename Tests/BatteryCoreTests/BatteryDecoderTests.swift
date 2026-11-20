@@ -262,4 +262,125 @@ final class BatteryDecoderTests: XCTestCase {
         XCTAssertEqual(try JSONDecoder().decode(BatterySnapshot.self, from: data), snapshot)
         XCTAssertEqual(snapshot.timestamp, date)
     }
+
+    func testPowerSourceStateAcceptsOnlyKnownValues() {
+        for state in ["AC Power", "Battery Power", "Off Line"] {
+            XCTAssertEqual(decode([:], ["Power Source State": state]).powerSource, state)
+        }
+        for invalid: Any in ["UPS Power", "", 1, true] {
+            let snapshot = decode([:], ["Power Source State": invalid])
+            XCTAssertEqual(snapshot.powerSource, "Unknown")
+            XCTAssertTrue(snapshot.limitations.contains("The active power source is unavailable."))
+        }
+        var missing = source()
+        missing.removeValue(forKey: "Power Source State")
+        XCTAssertEqual(BatteryDecoder.decode(powerSources: [missing], registry: [:], date: date).powerSource, "Unknown")
+    }
+
+    func testTimeToEmptyOnlyWhileDischargingOnBatteryPower() {
+        func empty(_ value: Any) -> BatterySnapshot {
+            decode([:], ["Power Source State": "Battery Power", "Is Charging": false, "Time to Empty": value])
+        }
+        XCTAssertEqual(empty(1).timeToEmptyMinutes, 1)
+        XCTAssertEqual(empty(245).timeToEmptyMinutes, 245)
+        XCTAssertEqual(empty(6000).timeToEmptyMinutes, 6000)
+        XCTAssertEqual(empty(245.0).timeToEmptyMinutes, 245)
+        XCTAssertTrue(empty(245).limitations.contains { $0.contains("Time to empty is the macOS IOPowerSources estimate") })
+        for invalid: Any in [-1, 0, 6001, 245.5, true, false, "245", Double.nan, Double.infinity] {
+            XCTAssertNil(empty(invalid).timeToEmptyMinutes)
+        }
+        XCTAssertTrue(empty(-1).limitations.contains("macOS is still calculating time to empty."))
+        XCTAssertTrue(empty(0).limitations.contains { $0.contains("1...6000 minutes") })
+        XCTAssertTrue(empty(true).limitations.contains { $0.contains("1...6000 minutes") })
+        // Gated by power state and by a known, false charging state.
+        XCTAssertNil(decode([:], ["Is Charging": false, "Time to Empty": 245]).timeToEmptyMinutes)
+        XCTAssertNil(decode([:], ["Power Source State": "Off Line", "Is Charging": false, "Time to Empty": 245]).timeToEmptyMinutes)
+        XCTAssertNil(decode([:], ["Power Source State": "Battery Power", "Is Charging": true, "Time to Empty": 245]).timeToEmptyMinutes)
+        var unknownCharging = source(["Power Source State": "Battery Power", "Time to Empty": 245])
+        unknownCharging.removeValue(forKey: "Is Charging")
+        XCTAssertNil(BatteryDecoder.decode(powerSources: [unknownCharging], registry: [:], date: date).timeToEmptyMinutes)
+        // Not applicable on AC power: no note at all, not even for the calculating sentinel.
+        let ac = decode([:], ["Time to Empty": -1])
+        XCTAssertFalse(ac.limitations.contains { $0.lowercased().contains("time to empty") })
+    }
+
+    func testTimeToFullChargeOnlyWhileCharging() {
+        func full(_ value: Any, charging: Any = true) -> BatterySnapshot {
+            decode([:], ["Is Charging": charging, "Time to Full Charge": value])
+        }
+        XCTAssertEqual(full(1).timeToFullChargeMinutes, 1)
+        XCTAssertEqual(full(90).timeToFullChargeMinutes, 90)
+        XCTAssertEqual(full(6000).timeToFullChargeMinutes, 6000)
+        XCTAssertEqual(full(90.0).timeToFullChargeMinutes, 90)
+        XCTAssertTrue(full(90).limitations.contains("Time to full charge is the macOS IOPowerSources estimate in minutes."))
+        for invalid: Any in [-1, 0, 6001, 90.5, true, "90", Double.nan] {
+            XCTAssertNil(full(invalid).timeToFullChargeMinutes)
+        }
+        XCTAssertTrue(full(-1).limitations.contains("macOS is still calculating time to full charge."))
+        XCTAssertTrue(full(6001).limitations.contains { $0.contains("1...6000 minutes") })
+        let notCharging = full(90, charging: false)
+        XCTAssertNil(notCharging.timeToFullChargeMinutes)
+        XCTAssertFalse(notCharging.limitations.contains { $0.lowercased().contains("time to full") })
+        XCTAssertNil(full(90, charging: "Yes").timeToFullChargeMinutes)
+        // Charging never reports a time to empty, even if the source claims battery power.
+        let both = decode([:], [
+            "Power Source State": "Battery Power", "Is Charging": true,
+            "Time to Empty": 100, "Time to Full Charge": 50
+        ])
+        XCTAssertNil(both.timeToEmptyMinutes)
+        XCTAssertEqual(both.timeToFullChargeMinutes, 50)
+    }
+
+    func testAdapterWattsIsRangeCheckedAndOnlyWattsIsKept() throws {
+        func adapter(_ details: [String: Any]) -> BatterySnapshot {
+            BatteryDecoder.decode(powerSources: [source()], registry: [:], date: date, adapter: details)
+        }
+        XCTAssertEqual(adapter(["Watts": 1]).adapterWatts, 1)
+        XCTAssertEqual(adapter(["Watts": 96]).adapterWatts, 96)
+        XCTAssertEqual(adapter(["Watts": 1000]).adapterWatts, 1000)
+        XCTAssertEqual(adapter(["Watts": 140.0]).adapterWatts, 140)
+        XCTAssertTrue(adapter(["Watts": 96]).limitations.contains { $0.contains("not current power draw") })
+        for invalid: Any in [0, -60, 1001, 96.5, true, "96", Double.nan, Double.infinity] {
+            let snapshot = adapter(["Watts": invalid])
+            XCTAssertNil(snapshot.adapterWatts)
+            XCTAssertTrue(snapshot.limitations.contains { $0.contains("1...1000 W") })
+        }
+        XCTAssertNil(adapter(["Current": 4700]).adapterWatts)
+        let none = adapter([:])
+        XCTAssertNil(none.adapterWatts)
+        XCTAssertFalse(none.limitations.contains { $0.contains("1...1000 W") || $0.contains("not current power draw") })
+        XCTAssertNil(decode().adapterWatts)
+        let detailed = adapter(["Watts": 96, "SerialString": "PRIVATE-ADAPTER", "Name": "PRIVATE-NAME"])
+        XCTAssertEqual(detailed.adapterWatts, 96)
+        let text = String(decoding: try JSONEncoder().encode(detailed), as: UTF8.self)
+        XCTAssertFalse(text.contains("PRIVATE"))
+        let absent = BatteryDecoder.decode(powerSources: [source(["Is Present": false])], registry: [:], date: date, adapter: ["Watts": 96])
+        XCTAssertNil(absent.adapterWatts)
+    }
+
+    func testTimeAndAdapterFieldsRoundTripAndOldJSONStillDecodes() throws {
+        let old = Data("{\"timestamp\":0,\"isPresent\":true,\"powerSource\":\"AC Power\",\"limitations\":[]}".utf8)
+        let decoded = try JSONDecoder().decode(BatterySnapshot.self, from: old)
+        XCTAssertNil(decoded.timeToEmptyMinutes)
+        XCTAssertNil(decoded.timeToFullChargeMinutes)
+        XCTAssertNil(decoded.adapterWatts)
+        let oldText = String(decoding: try JSONEncoder().encode(decoded), as: UTF8.self)
+        XCTAssertFalse(oldText.contains("timeToEmptyMinutes"))
+        XCTAssertFalse(oldText.contains("adapterWatts"))
+        let snapshot = BatterySnapshot(
+            timestamp: date, isPresent: true, powerSource: "AC Power", isCharging: true,
+            timeToEmptyMinutes: 300, timeToFullChargeMinutes: 42, adapterWatts: 96
+        )
+        let data = try JSONEncoder().encode(snapshot)
+        let roundTrip = try JSONDecoder().decode(BatterySnapshot.self, from: data)
+        XCTAssertEqual(roundTrip, snapshot)
+        XCTAssertEqual(roundTrip.timeToEmptyMinutes, 300)
+        XCTAssertEqual(roundTrip.timeToFullChargeMinutes, 42)
+        XCTAssertEqual(roundTrip.adapterWatts, 96)
+        let text = String(decoding: data, as: UTF8.self)
+        XCTAssertTrue(text.contains("\"adapterWatts\":96"))
+        XCTAssertTrue(text.contains("\"timeToFullChargeMinutes\":42"))
+        let decodedSample = decode([:], ["Is Charging": true, "Time to Full Charge": 75])
+        XCTAssertEqual(try JSONDecoder().decode(BatterySnapshot.self, from: JSONEncoder().encode(decodedSample)), decodedSample)
+    }
 }

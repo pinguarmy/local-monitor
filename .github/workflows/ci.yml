@@ -3,19 +3,74 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:
   test:
-    runs-on: macos-14
-    timeout-minutes: 20
+    runs-on: macos-15
+    # Four raw swiftc builds (native, x86_64 tests, universal arm64 + x86_64) plus swift test.
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - name: Build and standalone tests
+        timeout-minutes: 10
         run: bash scripts/test-direct.sh
       - name: Swift Package tests
+        timeout-minutes: 10
         run: swift test
-      - name: Build local signed bundle
-        run: bash scripts/build-app.sh
+      - name: Ensure Rosetta 2
+        timeout-minutes: 5
+        run: |
+          if /usr/bin/arch -x86_64 /usr/bin/true 2>/dev/null; then
+            echo "Rosetta 2 is available"
+          else
+            sudo softwareupdate --install-rosetta --agree-to-license
+            /usr/bin/arch -x86_64 /usr/bin/true
+          fi
+      - name: Build and standalone tests (x86_64 under Rosetta 2)
+        timeout-minutes: 10
+        env:
+          LOCAL_MONITOR_ARCH: x86_64
+        run: bash scripts/test-direct.sh
+      - name: Build universal signed bundle
+        timeout-minutes: 10
+        env:
+          LOCAL_MONITOR_ICON_PREVIEW: "1"
+        run: bash scripts/build-app.sh --universal
       - name: Verify public files and application
         run: python3 scripts/check-release-privacy.py
+      - name: Launch the app and open the panel (arm64)
+        timeout-minutes: 2
+        run: arch -arm64 dist/LocalMonitor.app/Contents/MacOS/LocalMonitor --smoke-test --interaction-test --language en
+      - name: Launch the app and open the panel (x86_64 under Rosetta 2)
+        timeout-minutes: 3
+        run: arch -x86_64 dist/LocalMonitor.app/Contents/MacOS/LocalMonitor --smoke-test --interaction-test --language en
+      - name: Sampling lifecycle and panel previews
+        timeout-minutes: 5
+        run: |
+          app=dist/LocalMonitor.app/Contents/MacOS/LocalMonitor
+          mkdir -p .build/previews
+          for language in en zh-Hans; do
+            # Live data from this runner.
+            "$app" --sampling-test --language "$language" --preview-page system --render-preview ".build/previews/system-$language.png"
+            # The runner has no battery and no iPhone: render those tabs from built-in sample data.
+            for page in battery devices; do
+              "$app" --smoke-test --language "$language" --preview-page "$page" --preview-fixture --render-preview ".build/previews/$page-sample-$language.png"
+            done
+          done
+          # Empty states as this runner really reports them.
+          for page in battery devices; do
+            "$app" --smoke-test --language en --preview-page "$page" --render-preview ".build/previews/$page-empty-en.png"
+          done
+          # Every menu bar mode starts, samples where it should, and shuts down cleanly.
+          for metric in battery cpu memory iconOnly; do
+            "$app" --smoke-test --language en --menu-bar-metric "$metric"
+          done
+      - name: Upload panel previews
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: panel-previews
+          path: .build/previews/*.png
+          if-no-files-found: error
+          retention-days: 7

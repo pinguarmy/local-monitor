@@ -2,12 +2,12 @@
 # No SwiftPM manifest subprocess or sandbox settings are changed.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
-OUT="$ROOT/.build/direct"
+# Host architecture into .build/direct by default; LOCAL_MONITOR_ARCH=arm64|x86_64 builds that
+# architecture into .build/direct-<arch> instead (see direct-arch.sh).
+source "$ROOT/scripts/direct-arch.sh"
 mkdir -p "$OUT/module-cache"
 SWIFTC="$(xcrun --find swiftc)"
 SDK="$(xcrun --show-sdk-path)"
-ARCH="$(uname -m)"
-case "$ARCH" in arm64|x86_64) ;; *) printf 'Unsupported architecture: %s\n' "$ARCH" >&2; exit 1 ;; esac
 COMMON=(-swift-version 5 -O -sdk "$SDK" -target "$ARCH-apple-macosx13.0" -module-cache-path "$OUT/module-cache"
   -file-prefix-map "$ROOT=/src/LocalMonitor" -debug-prefix-map "$ROOT=/src/LocalMonitor")
 shopt -s nullglob
@@ -38,4 +38,4 @@ fi
   -lBatteryCore -lSystemCore -lDeviceCore \
   -framework IOKit -framework Metal -framework AppKit -framework SwiftUI \
   "${ui_sources[@]}" -o "$OUT/LocalMonitor"
-printf 'Direct native build complete: %s\n' "$OUT"
+printf 'Direct native build complete (%s): %s\n' "$ARCH" "$OUT"

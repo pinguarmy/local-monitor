@@ -55,7 +55,12 @@ struct StandaloneRunner {
             ("availability and read failures", tests.testAvailabilitySeparatesAbsenceFromReadFailures),
             ("IOPS electrical fallback", tests.testPublicIOPSElectricalFallbackHasDocumentedUnits),
             ("old JSON and new snapshot fields", tests.testSnapshotOldJSONAndNewFieldsRoundTrip),
-            ("condition, privacy, Codable", tests.testConditionPrefersSpecificOfficialConditionAndNeverLeaksIdentifiers)
+            ("condition, privacy, Codable", tests.testConditionPrefersSpecificOfficialConditionAndNeverLeaksIdentifiers),
+            ("known power source states", tests.testPowerSourceStateAcceptsOnlyKnownValues),
+            ("time to empty gating", tests.testTimeToEmptyOnlyWhileDischargingOnBatteryPower),
+            ("time to full charge gating", tests.testTimeToFullChargeOnlyWhileCharging),
+            ("adapter watts range and allowlist", tests.testAdapterWattsIsRangeCheckedAndOnlyWattsIsKept),
+            ("time and adapter Codable", tests.testTimeAndAdapterFieldsRoundTripAndOldJSONStillDecodes)
         ]
         for (name, test) in cases {
             let before = failureCount

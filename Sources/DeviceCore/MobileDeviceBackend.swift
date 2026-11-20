@@ -3,6 +3,15 @@ import CoreFoundation
 import Darwin
 
 /// Every MobileDevice symbol is resolved at runtime. There is no linker dependency on the private framework.
+///
+/// What this module reads, and nothing else:
+///   - device attach/detach notifications (opaque handle + event code only, never am_device fields);
+///   - the transport of each handle via AMDeviceGetInterfaceType (optional), so that devices visible
+///     only over the network (Wi-Fi sync) are skipped and never queried — only USB devices are read;
+///   - after an existing pairing is confirmed (never created), individual allowlisted lockdown keys:
+///     ProductType, ProductVersion, DeviceClass and four com.apple.mobile.battery keys;
+///   - one fixed diagnostics_relay battery query (see DiagnosticsBatteryReader).
+/// No UDID, serial number, device name or pairing record is ever requested.
 final class MobileDeviceLibrary {
     typealias DeviceCall = @convention(c) (UnsafeMutableRawPointer?) -> Int32
     typealias DeviceLifetime = @convention(c) (UnsafeMutableRawPointer?) -> Void
@@ -17,6 +26,9 @@ final class MobileDeviceLibrary {
     typealias ConnReceive = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, Int) -> Int
     typealias ConnInvalidate = @convention(c) (UnsafeMutableRawPointer?) -> Void
     typealias ConnGetSocket = @convention(c) (UnsafeMutableRawPointer?) -> Int32
+    // Optional transport query: int AMDeviceGetInterfaceType(AMDeviceRef). Per ios-deploy MobileDevice.h,
+    // 1 = USB/wired, 2 = Wi-Fi. Same C shape as DeviceCall. Absence never affects `ready`.
+    typealias InterfaceType = DeviceCall
 
     static let paths = [
         "/Library/Apple/System/Library/PrivateFrameworks/MobileDevice.framework/MobileDevice",
@@ -39,6 +51,8 @@ final class MobileDeviceLibrary {
     let connReceive: ConnReceive?
     let connInvalidate: ConnInvalidate?
     let connGetSocket: ConnGetSocket?
+    let interfaceType: InterfaceType?
+    // interfaceType is deliberately not required: without it every handle is read as before.
     var ready: Bool {
         loaded && subscribe != nil && unsubscribe != nil && connect != nil && disconnect != nil &&
         isPaired != nil && validatePairing != nil && startSession != nil && stopSession != nil &&
@@ -69,20 +83,54 @@ final class MobileDeviceLibrary {
         connReceive = symbol("AMDServiceConnectionReceive", ConnReceive.self)
         connInvalidate = symbol("AMDServiceConnectionInvalidate", ConnInvalidate.self)
         connGetSocket = symbol("AMDServiceConnectionGetSocket", ConnGetSocket.self)
+        interfaceType = symbol("AMDeviceGetInterfaceType", InterfaceType.self)
         // Keep a successfully loaded private image resident. Its callbacks/CF classes may outlive a read.
         // No error text from dlerror is exposed because framework diagnostics are not our public API.
+    }
+}
+
+/// Decides when the notification scan may stop. Pure, so it is testable without hardware.
+/// The hard end always wins. Before any device is known the scan waits up to the hard end
+/// (a first notification can legitimately take a while, so no-device behaviour is unchanged).
+/// Once at least one device is known, the scan ends after `quietPeriod` without a new
+/// attach/detach event, so a connected device does not cost the full scan window.
+enum DeviceScanPolicy {
+    static let quietPeriod: TimeInterval = 0.3
+
+    static func shouldKeepWaiting(now: TimeInterval, scanStart: TimeInterval, hardEnd: TimeInterval,
+                                  lastEventAt: TimeInterval?, deviceCount: Int,
+                                  quietPeriod: TimeInterval = DeviceScanPolicy.quietPeriod) -> Bool {
+        guard now < hardEnd else { return false }
+        guard deviceCount > 0, let lastEventAt else { return true }
+        // Events delivered synchronously during subscribe can predate scanStart; measure the
+        // quiet period from whichever is later.
+        return now - max(scanStart, lastEventAt) < quietPeriod
+    }
+}
+
+/// "USB only": a handle is skipped only when the optional transport query reports exactly 2 (Wi-Fi).
+/// Any other value, or a missing symbol (nil), reads the device as before.
+enum DeviceTransportPolicy {
+    static let wifiInterfaceType: Int32 = 2
+
+    static func shouldSkip(interfaceType: Int32?) -> Bool {
+        interfaceType == wifiInterfaceType
     }
 }
 
 private final class DeviceEnumeration {
     let library: MobileDeviceLibrary
     var handles: [UnsafeMutableRawPointer] = []
+    /// systemUptime of the last attach/detach notification; nil until one arrives.
+    /// Only touched on the reading thread (callbacks run inside its CFRunLoopRunInMode).
+    var lastEventUptime: TimeInterval?
     init(_ library: MobileDeviceLibrary) { self.library = library }
     func receive(_ info: UnsafeRawPointer) {
         // Read only the documented callback prefix: opaque device handle, then uint32 event.
         // Never inspect am_device fields or obtain a persistent device identifier.
         guard let device = info.load(as: UnsafeMutableRawPointer?.self) else { return }
         let event = info.load(fromByteOffset: MemoryLayout<UnsafeMutableRawPointer>.size, as: UInt32.self)
+        if event == 1 || event == 2 { lastEventUptime = ProcessInfo.processInfo.systemUptime }
         if event == 1 && !handles.contains(device) {
             library.retainDevice?(device)
             handles.append(device)
@@ -110,7 +158,7 @@ enum MobileDeviceBackend {
                      progress: DeviceReadProgress) -> DeviceSnapshot {
         if library.loaded { progress.markLoaded() }
         guard library.ready else {
-            return result(.unavailable, library, "本机 MobileDevice 私有框架或所需动态接口不可用。")
+            return result(.unavailable, library, DeviceMessage.frameworkUnavailable, issue: .frameworkUnavailable)
         }
         let deadline = ProcessInfo.processInfo.systemUptime + timeout
         let enumeration = DeviceEnumeration(library)
@@ -120,13 +168,20 @@ enum MobileDeviceBackend {
         guard subscribeCode == 0, let subscription else {
             // On a failed subscription the framework must not retain the callback.
             context.release()
-            return result(.unavailable, library, "无法订阅本地设备连接通知。")
+            return result(.unavailable, library, DeviceMessage.subscriptionFailed, issue: .subscriptionFailed)
         }
         // A short bounded runloop allows initial connected-device notifications to arrive.
         // No notifications is reported as noDevice, not a successful hardware read.
-        let scanEnd = min(deadline - 0.02, ProcessInfo.processInfo.systemUptime + min(1.5, timeout * 0.65))
-        while !progress.isCancelled && ProcessInfo.processInfo.systemUptime < scanEnd {
-            let remaining = scanEnd - ProcessInfo.processInfo.systemUptime
+        // The scan ends early once a device is known and the list has been quiet (DeviceScanPolicy);
+        // scanEnd remains the hard cap and cancellation is checked on every slice, as before.
+        let scanStart = ProcessInfo.processInfo.systemUptime
+        let scanEnd = min(deadline - 0.02, scanStart + min(1.5, timeout * 0.65))
+        while !progress.isCancelled {
+            let now = ProcessInfo.processInfo.systemUptime
+            guard DeviceScanPolicy.shouldKeepWaiting(now: now, scanStart: scanStart, hardEnd: scanEnd,
+                                                     lastEventAt: enumeration.lastEventUptime,
+                                                     deviceCount: enumeration.handles.count) else { break }
+            let remaining = scanEnd - now
             CFRunLoopRunInMode(.defaultMode, min(0.05, max(0, remaining)), false)
         }
         let unsubscribeCode = library.unsubscribe?(subscription) ?? -1
@@ -134,38 +189,58 @@ enum MobileDeviceBackend {
             // Leaking one retained context is safer than a late callback using freed memory.
             // Permanently quarantine the process-wide native gate to prevent repeated leaks.
             progress.quarantine()
-            return result(.unavailable, library, "无法停止设备通知，建议重启应用后重试。")
+            return result(.unavailable, library, DeviceMessage.notificationCleanupFailed,
+                          issue: .notificationCleanupFailed)
         }
         context.release()
-        guard !progress.isCancelled, ProcessInfo.processInfo.systemUptime < deadline else {
-            return result(.timedOut, library, "设备读取超时，请检查连接并解锁设备后重试。")
-        }
-        guard !enumeration.handles.isEmpty else {
-            return result(.noDevice, library, "未发现本地连接的 iPhone 或 iPad。请用数据线连接，解锁后在系统中完成信任，再手动刷新。")
-        }
-        var devices: [ConnectedDeviceSnapshot] = []
-        var failures: [DeviceReadStatus] = []
-        for handle in enumeration.handles {
+        // Keep the enumeration (and therefore every retained device handle) alive until the last
+        // native call below. Swift may otherwise end its lifetime right after the last direct use
+        // (copying `handles`), and its deinit would AMDeviceRelease the handles while they are
+        // still being connected to and queried.
+        return withExtendedLifetime(enumeration) { () -> DeviceSnapshot in
             guard !progress.isCancelled, ProcessInfo.processInfo.systemUptime < deadline else {
-                return result(.timedOut, library, "设备读取超时，请检查连接后重试。", devices)
+                return result(.timedOut, library, DeviceMessage.timedOut)
             }
-            switch readDevice(handle, library: library, ordinal: devices.count + 1,
-                              deadline: deadline, progress: progress) {
-            case .device(let device): devices.append(device)
-            case .failure(let status): failures.append(status)
-            case .unsupported: break
+            guard !enumeration.handles.isEmpty else {
+                return result(.noDevice, library, DeviceMessage.noDevice)
             }
+            var devices: [ConnectedDeviceSnapshot] = []
+            var failures: [DeviceReadStatus] = []
+            var skippedNonUSB = 0
+            for handle in enumeration.handles {
+                guard !progress.isCancelled, ProcessInfo.processInfo.systemUptime < deadline else {
+                    return result(.timedOut, library, DeviceMessage.timedOutDuringRead, devices)
+                }
+                // USB only: a Wi-Fi-visible handle is skipped (not a failure) and never queried.
+                // It may also be a second handle for a phone already enumerated over USB.
+                let transport = library.interfaceType.map { $0(handle) }
+                if DeviceTransportPolicy.shouldSkip(interfaceType: transport) {
+                    skippedNonUSB += 1
+                    continue
+                }
+                switch readDevice(handle, library: library, ordinal: devices.count + 1,
+                                  deadline: deadline, progress: progress) {
+                case .device(let device): devices.append(device)
+                case .failure(let status): failures.append(status)
+                case .unsupported: break
+                }
+            }
+            if !devices.isEmpty {
+                let message = failures.isEmpty ? DeviceMessage.available : DeviceMessage.partiallyAvailable
+                return result(.available, library, message, devices)
+            }
+            if failures.contains(.requiresUnlockAndTrust) {
+                return result(.requiresUnlockAndTrust, library, DeviceMessage.requiresUnlockAndTrust)
+            }
+            if failures.contains(.timedOut) { return result(.timedOut, library, DeviceMessage.communicationTimedOut) }
+            if !failures.isEmpty {
+                return result(.unavailable, library, DeviceMessage.deviceUnreadable, issue: .deviceUnreadable)
+            }
+            if skippedNonUSB == enumeration.handles.count {
+                return result(.noDevice, library, DeviceMessage.noUSBDevice)
+            }
+            return result(.noDevice, library, DeviceMessage.noReadableDevice)
         }
-        if !devices.isEmpty {
-            let message = failures.isEmpty ? "已读取本地已信任设备。仅显示设备实际提供的只读指标。" : "部分设备已读取，其他设备不可读，请检查解锁、信任和连接。"
-            return result(.available, library, message, devices)
-        }
-        if failures.contains(.requiresUnlockAndTrust) {
-            return result(.requiresUnlockAndTrust, library, "设备需要解锁或尚未信任此 Mac。请在 Finder 和设备上手动完成信任后刷新；本应用不会自动配对。")
-        }
-        if failures.contains(.timedOut) { return result(.timedOut, library, "设备通信超时，请检查连接后重试。") }
-        if !failures.isEmpty { return result(.unavailable, library, "发现设备，但当前无法读取。请检查连接与设备限制后重试。") }
-        return result(.noDevice, library, "未发现可读取的 iPhone 或 iPad。")
     }
 
     private enum ReadOutcome {
@@ -216,7 +291,9 @@ enum MobileDeviceBackend {
     }
 
     private static func result(_ status: DeviceReadStatus, _ library: MobileDeviceLibrary,
-                               _ message: String, _ devices: [ConnectedDeviceSnapshot] = []) -> DeviceSnapshot {
-        DeviceSnapshot(status: status, devices: devices, frameworkLoaded: library.loaded, message: message)
+                               _ message: String, _ devices: [ConnectedDeviceSnapshot] = [],
+                               issue: DeviceReadIssue? = nil) -> DeviceSnapshot {
+        DeviceSnapshot(status: status, devices: devices, frameworkLoaded: library.loaded,
+                       message: message, issue: issue)
     }
 }

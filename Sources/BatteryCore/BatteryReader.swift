@@ -19,7 +19,8 @@ public struct BatteryReader: Sendable {
         #endif
         return BatteryDecoder.decode(
             powerSources: sources.values, registry: registry.values, date: Date(),
-            readErrors: sources.errors + registry.errors, registryTemperatureUnit: unit
+            readErrors: sources.errors + registry.errors, registryTemperatureUnit: unit,
+            adapter: Self.adapter()
         )
     }
 
@@ -31,7 +32,7 @@ public struct BatteryReader: Sendable {
         let keys = [
             "Type", "Transport Type", "Is Present", "Current Capacity", "Max Capacity",
             "Power Source State", "Is Charging", "Is Charged", "BatteryHealthCondition", "BatteryHealth",
-            "Temperature", "Voltage", "Current"
+            "Temperature", "Voltage", "Current", "Time to Empty", "Time to Full Charge"
         ]
         var values: [[String: Any]] = []
         var errors: [BatteryReadError] = []
@@ -46,6 +47,14 @@ public struct BatteryReader: Sendable {
             values.append(result)
         }
         return (values, errors)
+    }
+
+    private static func adapter() -> [String: Any] {
+        // The details dictionary also carries identifiers such as serial numbers. Never enumerate,
+        // log, persist or forward it; copy only the numeric Watts value (kIOPSPowerAdapterWattsKey).
+        guard let details = IOPSCopyExternalPowerAdapterDetails()?.takeRetainedValue() as? [String: Any],
+              let watts = details["Watts"] as? NSNumber, CFGetTypeID(watts) != CFBooleanGetTypeID() else { return [:] }
+        return ["Watts": watts]
     }
 
     private static func registry() -> (values: [String: Any], errors: [BatteryReadError]) {

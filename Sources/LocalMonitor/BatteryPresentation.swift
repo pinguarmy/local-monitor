@@ -1,18 +1,27 @@
 import Foundation
 import BatteryCore
 
-/// Pure display rules shared by the menu bar and panel, independently testable.
+/// Pure display rules shared by the menu bar item and the Battery tab, independently testable.
 enum BatteryPresentation {
     static func status(_ snapshot: BatterySnapshot) -> String {
-        if snapshot.availability == .unknown { return "电池数据读取失败" }
-        guard snapshot.isPresent else { return "未检测到内置电池" }
-        if snapshot.isCharging == true { return "正在充电" }
-        if snapshot.isCharged == true { return "已充满" }
-        if snapshot.powerSource == "AC Power" {
-            return snapshot.isCharging == false ? "已接电 · 未充电" : "已接电 · 充电状态未知"
+        switch snapshot.availability {
+        case .unknown: return L10n.batteryReadFailed
+        case .absent: return L10n.batteryAbsent
+        case .present: break
         }
-        if snapshot.powerSource == "Battery Power" { return "使用电池" }
-        return "电源状态未知"
+        if snapshot.isCharging == true { return L10n.batteryCharging }
+        if snapshot.isCharged == true { return L10n.batteryCharged }
+        if snapshot.powerSource == "AC Power" {
+            return snapshot.isCharging == false ? L10n.batteryPluggedInNotCharging : L10n.batteryPluggedInUnknown
+        }
+        if snapshot.powerSource == "Battery Power" { return L10n.batteryOnBattery }
+        return L10n.batteryPowerUnknown
+    }
+
+    /// Percentage text for the menu bar title and the Battery tab header, nil when not read.
+    static func percentage(_ snapshot: BatterySnapshot) -> String? {
+        guard snapshot.isPresent, let percentage = snapshot.percentage else { return nil }
+        return MonitorFormat.integerPercent(percentage)
     }
 
     static func symbol(_ snapshot: BatterySnapshot) -> String {
@@ -28,38 +37,40 @@ enum BatteryPresentation {
         return "battery.\(level)"
     }
 
-}
+    /// Neutral glyphs for Macs without a battery, in fallback order. `NSImage(systemSymbolName:)`
+    /// returns nil for names the running macOS does not know, so callers try each in turn.
+    static let noBatterySymbols = ["gauge.medium", "gauge", "chart.bar", "display"]
 
-/// Panel tabs for the monitor UI.
-enum MonitorPage: String, CaseIterable {
-    case system
-    case battery
-    case devices
-
-    var label: String {
-        switch self {
-        case .system: return "系统"
-        case .battery: return "电池"
-        case .devices: return "设备"
+    /// Status item glyph candidates in fallback order. A read failure (`.unknown`) keeps a
+    /// battery glyph so it stays distinguishable from a Mac that has no battery.
+    static func statusItemSymbols(_ snapshot: BatterySnapshot) -> [String] {
+        switch snapshot.availability {
+        case .absent: return noBatterySymbols
+        case .present, .unknown: return [symbol(snapshot), "battery.0"]
         }
     }
-}
 
-/// On-demand sampling rules: no fixed periodic polling for battery or devices.
-enum SamplingPolicy {
-    /// Real-time system metrics are sampled only while the panel is visible,
-    /// the system page is shown, and the machine is not sleeping.
-    /// Low power mode widens the interval from 2s to 5s. Otherwise: no timer.
-    static func systemInterval(panelVisible: Bool, page: MonitorPage, isSleeping: Bool, lowPower: Bool) -> TimeInterval? {
-        guard panelVisible, page == .system, !isSleeping else { return nil }
-        return lowPower ? 5 : 2
+    /// Menu bar title next to the glyph: nothing for a Mac without a battery.
+    static func statusItemTitle(_ snapshot: BatterySnapshot) -> String {
+        switch snapshot.availability {
+        case .absent: return ""
+        case .present, .unknown: return " " + (percentage(snapshot) ?? "—")
+        }
     }
 
-    /// 电池永不周期轮询：仅系统电源事件与手动刷新驱动更新。
-    /// 断言为 nil，调用方不得据此创建任何定时器。
-    static var batteryPollingInterval: TimeInterval? { nil }
+    static func statusItemToolTip(_ snapshot: BatterySnapshot) -> String {
+        switch snapshot.availability {
+        case .absent: return L10n.appName
+        case .present, .unknown:
+            return L10n.statusItemToolTip(status: status(snapshot), percentage: percentage(snapshot))
+        }
+    }
 
-    /// 设备永不周期轮询：仅进入设备页或手动刷新时按需读取。
-    /// 断言为 nil，调用方不得据此创建任何定时器。
-    static var devicePollingInterval: TimeInterval? { nil }
+    static func statusItemAccessibilityValue(_ snapshot: BatterySnapshot) -> String {
+        switch snapshot.availability {
+        case .absent: return L10n.appName
+        case .present, .unknown:
+            return L10n.statusItemAccessibilityValue(status: status(snapshot), percentage: percentage(snapshot))
+        }
+    }
 }
