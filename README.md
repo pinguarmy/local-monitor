@@ -2,7 +2,7 @@
 
 A lightweight macOS menu bar app for system resources, Mac battery health, and battery information from USB-connected devices. The menu bar item can show battery charge, CPU usage or memory usage.
 
-[Download](https://github.com/pinguarmy/local-monitor/releases) · [MIT License](LICENSE)
+[Download 0.4.0](https://github.com/pinguarmy/local-monitor/releases/tag/v0.4.0-beta) · [MIT License](LICENSE)
 
 ## Features
 
@@ -20,7 +20,7 @@ The interface is available in English and Simplified Chinese and follows the sys
 
 ## Install
 
-1. Download the package from [Releases](https://github.com/pinguarmy/local-monitor/releases). Packages named `-macos-universal.zip` run natively on Apple Silicon and Intel Macs.
+1. Download `LocalMonitor-v0.4.0-beta-macos-universal.zip` from the [0.4.0 release](https://github.com/pinguarmy/local-monitor/releases/tag/v0.4.0-beta). It runs natively on Apple Silicon and Intel Macs.
 2. Extract it and drag `LocalMonitor.app` into Applications or `~/Applications`.
 3. Open the app and use its menu bar item.
 
